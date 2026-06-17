@@ -1,0 +1,20 @@
+services:
+  via-postgres:
+    image: garapadev/postgres-postgis-pgvector:15-slim
+    container_name: via-postgres
+    environment:
+      POSTGRES_USER: via_user
+      POSTGRES_PASSWORD: via_password
+      POSTGRES_DB: via_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - via_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U via_user -d via_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  via_postgres_data:
