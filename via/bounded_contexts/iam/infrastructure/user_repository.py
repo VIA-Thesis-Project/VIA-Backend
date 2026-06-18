@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,14 @@ class SQLAlchemyUserRepository(IUserRepository):
 
         statement = select(UserModel).where(UserModel.email == email.strip().lower())
         model = self._session.execute(statement).scalar_one_or_none()
+        if model is None:
+            return None
+        return _to_domain(model)
+
+    def get_by_id(self, user_id: UUID) -> User | None:
+        """Return a user aggregate by its persistent identifier when present."""
+
+        model = self._session.get(UserModel, user_id)
         if model is None:
             return None
         return _to_domain(model)

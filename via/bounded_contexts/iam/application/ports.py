@@ -15,6 +15,9 @@ class IUserRepository(Protocol):
     def get_by_email(self, email: str) -> User | None:
         """Return a user by normalized email when present."""
 
+    def get_by_id(self, user_id: UUID) -> User | None:
+        """Return a user by persistent identifier when present."""
+
 
 class IAuthAuditRepository(Protocol):
     """Persistence port for authentication audit rows."""

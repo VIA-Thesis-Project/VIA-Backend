@@ -232,7 +232,7 @@ def _rulebook_to_evaluation_data(rulebook: Rulebook) -> RulebookEvaluationData:
                 phase_weight=float(req.phase_weight),
                 temporal_periods=req.temporal_period_payload(),
                 membership_fn=req.membership_fn.to_mapping(),
-                critical_policy=criterion.critical_policy.value if criterion.critical_policy is not None else "PENALIZE",
+                critical_policy=criterion.critical_policy.value if criterion.critical_policy is not None else "",
                 penalty_factor=criterion.penalty_factor,
                 doc_source=criterion.doc_source,
             )

@@ -44,6 +44,7 @@ En PowerShell:
 $env:DATABASE_URL="postgresql+psycopg2://via_user:via_password@localhost:5433/via_test"
 $env:DB_SCHEMA_TRANSACTIONAL="transactional"
 $env:DB_SCHEMA_DOCUMENTAL="documental"
+$env:JWT_SECRET_KEY="cambia-esto-por-una-clave-local-de-32-bytes-minimo"
 
 $env:GEE_ENABLED="True"
 $env:GEE_PROJECT="TU_PROJECT_ID"
@@ -68,13 +69,77 @@ alembic upgrade head
 pytest -q
 ```
 
-## Ejecutar demo Leaflet → GEE → MCDA
+## Crear usuario admin inicial
 
-```bash
-python scripts/leaflet_to_gee_mcda_demo.py
+Antes de usar `/auth/login` es necesario insertar al menos un usuario con rol `ADMINISTRADOR`. El script `scripts/seed_admin_user.py` es idempotente: crea el usuario si no existe o actualiza su contraseña y rol si ya existe.
+
+```powershell
+$env:DATABASE_URL="postgresql+psycopg2://via_user:via_password@localhost:5433/via_test"
+$env:SEED_ADMIN_EMAIL="admin@via.local"
+$env:SEED_ADMIN_PASSWORD="Admin123456"
+$env:SEED_ADMIN_NAME="Administrador VIA"   # opcional
+
+python scripts/seed_admin_user.py
 ```
 
-La demo registra una parcela tipo Leaflet, crea/publica un rulebook, ejecuta la saga con GEE real y consulta el resultado MCDA.
+## Sembrar rulebooks diagnósticos
+
+Antes de ejecutar la demo es necesario tener rulebooks activos en la base de datos. El script es idempotente.
+
+```powershell
+$env:DATABASE_URL="postgresql+psycopg2://via_user:via_password@localhost:5433/via_test"
+
+python scripts/seed_diagnostic_rulebooks.py
+```
+
+Esto crea rulebooks sintéticos para 5 cultivos de demo: `demo_papa`, `demo_maiz`, `demo_quinua`, `demo_palta`, `demo_arandano`.
+
+> **Advertencia:** estos rulebooks son fixtures diagnósticos para validación funcional. No corresponden a datos INIA ni constituyen guía agronómica real.
+
+## Ejecutar demo E2E trazable
+
+La demo registra una parcela desde un archivo GeoJSON, inicia una evaluación, procesa el Outbox con GEE real, calcula el MCDA y genera un reporte completo de trazabilidad en `artifacts/demo_runs/`.
+
+Primero configurar las variables de entorno adicionales:
+
+```powershell
+$env:VIA_API_BASE_URL="http://127.0.0.1:8000"
+$env:VIA_ADMIN_EMAIL="admin@via.local"
+$env:VIA_ADMIN_PASSWORD="Admin123456"
+```
+
+Luego ejecutar la demo (el servidor FastAPI debe estar corriendo):
+
+```powershell
+python scripts/run_traceable_e2e_demo.py `
+  --geojson-file examples/parcels/parcela_humalla.geojson `
+  --start-date 2025-01-01 `
+  --end-date 2025-12-31 `
+  --max-rounds 10 `
+  --pause-seconds 1 `
+  --until-completed
+```
+
+Parcelas de ejemplo disponibles en `examples/parcels/`:
+
+* `parcela_humalla.geojson` — valle costero, zona Huaura-Sayán
+* `parcela_oyon.geojson` — sierra, distrito de Oyón
+
+Cada ejecución genera un directorio en `artifacts/demo_runs/<timestamp>_<evaluation_id>/` con 15 archivos JSON de trazabilidad y un `trace_report.md` legible.
+
+## Login
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@via.local",
+  "password": "Admin123456"
+}
+```
+
+Responde `200` con `access_token` (JWT Bearer) si las credenciales son válidas, o `401` si no lo son.
 
 ## Endpoints principales
 
@@ -149,4 +214,4 @@ Pendiente o posterior:
 * Recommendation final en frontend
 * LLM externo
 * RAG documental
-* despliegue productivo
+* Despliegue productivo
