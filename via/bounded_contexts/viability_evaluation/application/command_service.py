@@ -30,7 +30,7 @@ from via.bounded_contexts.viability_evaluation.domain.mcda_policy import (
     PhaseGapTrace,
     RankingService,
 )
-from via.bounded_contexts.viability_evaluation.domain.value_objects import CriticalPolicy, ViabilityCategory
+from via.bounded_contexts.viability_evaluation.domain.value_objects import CalcCondition, CriticalPolicy, ViabilityCategory
 from via.config import Settings
 from via.shared.event_bus.message import Message
 from via.shared.idempotency.processed_message_store import IdempotentConsumerMixin
@@ -46,6 +46,15 @@ from via.shared.outbox.outbox_writer import OutboxWriter
 VIABILITY_EVALUATION_CONSUMER = "viability-evaluation-consumer"
 AGGREGATE_TYPE = "Evaluation"
 
+# Data-sufficiency policy: if the total AHP weight of missing criteria meets or exceeds
+# this threshold, the result is NO_CONCLUYENTE regardless of the partial score.
+# At 0.30, any two or more climate criteria missing (total climate weight = 0.67) triggers it.
+_MISSING_WEIGHT_THRESHOLD: float = 0.30
+
+# Topographic criteria are structural: a conclusion requires them even when their combined
+# weight (0.28) falls below the generic threshold.
+_STRUCTURAL_CRITERIA: frozenset[str] = frozenset({"aptitud_altitudinal", "aptitud_topografica"})
+
 
 @dataclass(frozen=True)
 class McdaRuntimeSettings:
@@ -57,6 +66,7 @@ class McdaRuntimeSettings:
     mcda_viable_threshold: float
     mcda_condicional_threshold: float
     mcda_penalize_epsilon: float
+    mcda_non_critical_membership_floor: float = 0.05
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "McdaRuntimeSettings":
@@ -69,6 +79,7 @@ class McdaRuntimeSettings:
             mcda_viable_threshold=settings.mcda_viable_threshold,
             mcda_condicional_threshold=settings.mcda_condicional_threshold,
             mcda_penalize_epsilon=settings.mcda_penalize_epsilon,
+            mcda_non_critical_membership_floor=settings.mcda_non_critical_membership_floor,
         )
 
 
@@ -213,6 +224,14 @@ class PureMcdaEvaluationEngine:
         for rulebook in rulebooks:
             details, phase_traces, missing_criteria, unrecognized_variables = _criterion_details_for_crop(rulebook, vector)
             w_ahp = {detail.criterion_id: float(detail.w_ahp) for detail in details}
+            # Full AHP weights for ALL criteria in the rulebook (including those with missing data).
+            # Used by the data-sufficiency policy to compute missing_weight correctly.
+            all_ahp_weights = {
+                criterion_id: float(
+                    next(spec.w_ahp for spec in rulebook.criteria if spec.criterion_id == criterion_id)
+                )
+                for criterion_id in dict.fromkeys(spec.criterion_id for spec in rulebook.criteria)
+            }
             entropy_result = self._entropy_service.calculate(
                 {detail.criterion_id: [float(value) for value in detail.memberships_by_period.values()] for detail in details},
                 min_series_length=settings.mcda_min_temporal_series_length,
@@ -243,24 +262,34 @@ class PureMcdaEvaluationEngine:
                 unrecognized_variables=unrecognized_variables,
                 viable_threshold=settings.mcda_viable_threshold,
                 condicional_threshold=settings.mcda_condicional_threshold,
+                non_critical_membership_floor=settings.mcda_non_critical_membership_floor,
             )
             critical_result = self._critical_policy_service.apply(
                 aggregated_memberships=aggregated,
                 hybrid_weights=w_hybrid,
                 calc_condition=basic_result.calc_condition,
                 critical_traces=_critical_traces(phase_traces),
+                critical_criteria=critical_criteria,
                 penalize_epsilon=settings.mcda_penalize_epsilon,
+                non_critical_membership_floor=settings.mcda_non_critical_membership_floor,
                 viable_threshold=settings.mcda_viable_threshold,
                 condicional_threshold=settings.mcda_condicional_threshold,
             )
             gaps = self._gap_service.calculate(_phase_gap_traces(phase_traces))
+
+            final_score, final_condition, final_category = _apply_sufficiency_policy(
+                basic_result=basic_result,
+                critical_result=critical_result,
+                all_ahp_weights=all_ahp_weights,
+            )
+
             crop_results.append(
                 CropResult(
                     crop_id=rulebook.crop_id,
-                    score=critical_result.score,
+                    score=final_score,
                     rank_position=None,
-                    calc_condition=basic_result.calc_condition,
-                    viability_category=critical_result.viability_category or basic_result.viability_category or ViabilityCategory.NO_VIABLE,
+                    calc_condition=final_condition,
+                    viability_category=final_category,
                     criterion_details=enriched_details,
                     gaps=gaps,
                     limiting_factors=critical_result.limiting_factors,
@@ -409,6 +438,45 @@ def _critical_traces(phase_traces: list[PhaseEvaluationTrace]) -> list[CriticalC
             )
         )
     return traces
+
+
+def _apply_sufficiency_policy(
+    basic_result: object,
+    critical_result: object,
+    all_ahp_weights: dict[str, float],
+) -> tuple[float | None, CalcCondition, ViabilityCategory]:
+    """Return (score, calc_condition, viability_category) after applying the data-sufficiency policy.
+
+    Two conditions trigger NO_CONCLUYENTE:
+    1. critical path: basic_result.calc_condition is already NO_CONCLUYENTE
+       (a criterion marked critical_policy=NO_VIABLE/PENALIZE had no data).
+    2. weight threshold: the sum of AHP weights for missing criteria ≥ 0.30.
+    3. structural: any topographic criterion (elevacion, pendiente) is missing,
+       regardless of weight, because they are required for a spatial conclusion.
+
+    In all three cases the partial score is preserved for traceability but
+    the viability category is set to NO_CONCLUYENTE and rank_position is null.
+    all_ahp_weights must contain ALL rulebook criteria (present and missing).
+    """
+    if basic_result.calc_condition == CalcCondition.NO_CONCLUYENTE:
+        return None, CalcCondition.NO_CONCLUYENTE, ViabilityCategory.NO_CONCLUYENTE
+
+    missing_weight = sum(float(all_ahp_weights.get(c, 0.0)) for c in basic_result.missing_criteria)
+    missing_structural = bool(set(basic_result.missing_criteria) & _STRUCTURAL_CRITERIA)
+
+    if missing_weight >= _MISSING_WEIGHT_THRESHOLD or missing_structural:
+        return (
+            critical_result.score,
+            CalcCondition.PARCIAL,
+            ViabilityCategory.NO_CONCLUYENTE,
+        )
+
+    category = (
+        critical_result.viability_category
+        or basic_result.viability_category
+        or ViabilityCategory.NO_VIABLE
+    )
+    return critical_result.score, basic_result.calc_condition, category
 
 
 def _temporal_weights(spec: object, memberships: dict[str, float]) -> dict[str, float]:

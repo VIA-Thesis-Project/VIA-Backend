@@ -27,6 +27,9 @@ from via.bounded_contexts.parcel_management.interfaces.parcel_router import get_
 from via.bounded_contexts.parcel_management.interfaces.parcel_router import router as parcel_router
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import get_current_user as get_rulebook_current_user
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import router as rulebook_router
+from via.bounded_contexts.recommendation.application.recommendation_query_service import RecommendationQueryService
+from via.bounded_contexts.recommendation.infrastructure.recommendation_query_repository import RecommendationQueryRepository
+from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_recommendation_query_service
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import router as recommendation_router
 from via.bounded_contexts.viability_evaluation.application.query_service import EvaluationQueryService
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
@@ -56,6 +59,7 @@ def create_app() -> FastAPI:
     _wire_iam_dependencies(app, session_factory, settings)
     _wire_parcel_dependencies(app, session_factory, settings)
     _wire_evaluation_dependencies(app, session_factory)
+    _wire_recommendation_dependencies(app, session_factory)
     return app
 
 
@@ -149,6 +153,22 @@ def _wire_parcel_dependencies(
 
     app.dependency_overrides[get_parcel_command_service] = _parcel_command_dep
     app.dependency_overrides[get_parcel_query_service] = _parcel_query_dep
+
+
+def _wire_recommendation_dependencies(
+    app: FastAPI,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Install real recommendation query infrastructure into FastAPI dependency overrides."""
+
+    def _recommendation_query_dep() -> Generator[RecommendationQueryService, None, None]:
+        session = session_factory()
+        try:
+            yield RecommendationQueryService(RecommendationQueryRepository(session))
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_recommendation_query_service] = _recommendation_query_dep
 
 
 def _wire_evaluation_dependencies(

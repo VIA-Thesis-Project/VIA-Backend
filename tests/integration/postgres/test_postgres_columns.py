@@ -201,3 +201,26 @@ def test_evaluation_sagas_crop_candidates_is_jsonb(pg_migrated) -> None:
     assert row[0] == "jsonb", (
         f"Column 'crop_candidates' should be JSONB, got udt_name='{row[0]}'"
     )
+
+
+@pytest.mark.slow
+def test_agroenv_variable_entry_trace_columns_allow_long_gee_source(pg_migrated) -> None:
+    with pg_migrated.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT column_name, data_type, character_maximum_length "
+                "FROM information_schema.columns "
+                "WHERE table_schema = 'transactional' "
+                "AND table_name = 'agroenv_variable_entries' "
+                "AND column_name IN ('source', 'dataset_key', 'band', 'variable_name', 'period_key', 'unit', 'status')"
+            )
+        )
+        columns = {row[0]: {"data_type": row[1], "length": row[2]} for row in result}
+
+    assert columns["source"]["data_type"] == "text"
+    assert columns["dataset_key"]["length"] == 150
+    assert columns["band"]["length"] == 128
+    assert columns["variable_name"]["length"] == 100
+    assert columns["period_key"]["length"] == 100
+    assert columns["unit"]["length"] == 50
+    assert columns["status"]["length"] == 20

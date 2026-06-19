@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,7 +38,7 @@ class AgroenvVariableEntryModel(Base):
     crop_id: Mapped[str] = mapped_column(String(100), nullable=False)
     phase_id: Mapped[str] = mapped_column(String(100), nullable=False)
     dataset_key: Mapped[str] = mapped_column(String(150), nullable=False)
-    band: Mapped[str] = mapped_column(String(100), nullable=False)
+    band: Mapped[str] = mapped_column(String(128), nullable=False)
     unit: Mapped[str] = mapped_column(String(50), nullable=False)
     temporal_resolution: Mapped[str] = mapped_column(String(50), nullable=False)
     spatial_resolution: Mapped[str | None] = mapped_column(String(50))
@@ -48,7 +48,7 @@ class AgroenvVariableEntryModel(Base):
     quality_mask: Mapped[dict | None] = mapped_column(JSONB)
     fallback_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     value: Mapped[Decimal | None] = mapped_column(Numeric)
-    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
     extraction_date: Mapped[object] = mapped_column(Date, nullable=False)
-    period_key: Mapped[str] = mapped_column(String(50), nullable=False)
+    period_key: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)

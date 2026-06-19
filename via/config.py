@@ -25,6 +25,7 @@ DEFAULT_MCDA_ENTROPY_MIN_DIVERGENCE = 1e-9
 DEFAULT_MCDA_VIABLE_THRESHOLD = 0.70
 DEFAULT_MCDA_CONDICIONAL_THRESHOLD = 0.40
 DEFAULT_MCDA_PENALIZE_EPSILON = 0.01
+DEFAULT_MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR = 0.05
 DEFAULT_LLM_DRAFTING_PROVIDER = "template"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30
 DEFAULT_LLM_MAX_PROMPT_CHARS = 12000
@@ -48,6 +49,7 @@ class Settings:
     mcda_viable_threshold: float
     mcda_condicional_threshold: float
     mcda_penalize_epsilon: float
+    mcda_non_critical_membership_floor: float
     relay_worker_poll_interval_seconds: int
     jwt_secret_key: str
     jwt_algorithm: str
@@ -107,6 +109,11 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         mcda_viable_threshold=_read_float(source, "MCDA_VIABLE_THRESHOLD", str(DEFAULT_MCDA_VIABLE_THRESHOLD)),
         mcda_condicional_threshold=_read_float(source, "MCDA_CONDICIONAL_THRESHOLD", str(DEFAULT_MCDA_CONDICIONAL_THRESHOLD)),
         mcda_penalize_epsilon=_read_float(source, "MCDA_PENALIZE_EPSILON", str(DEFAULT_MCDA_PENALIZE_EPSILON)),
+        mcda_non_critical_membership_floor=_read_float(
+            source,
+            "MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR",
+            str(DEFAULT_MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR),
+        ),
         relay_worker_poll_interval_seconds=_read_int(
             source,
             "RELAY_WORKER_POLL_INTERVAL_SECONDS",
@@ -188,6 +195,8 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigurationError("MCDA_VIABLE_THRESHOLD must be >= MCDA_CONDICIONAL_THRESHOLD")
     if not 0.0 < settings.mcda_penalize_epsilon <= 1.0:
         raise ConfigurationError("MCDA_PENALIZE_EPSILON must be in (0, 1]")
+    if not 0.0 <= settings.mcda_non_critical_membership_floor <= 1.0:
+        raise ConfigurationError("MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR must be in [0, 1]")
     if settings.relay_worker_poll_interval_seconds > 60:
         raise ConfigurationError("RELAY_WORKER_POLL_INTERVAL_SECONDS must not exceed 60")
     if settings.relay_worker_poll_interval_seconds <= 0:

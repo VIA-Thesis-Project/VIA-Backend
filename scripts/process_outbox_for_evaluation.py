@@ -67,6 +67,8 @@ from via.shared.orchestration.evaluation_process_manager.process_manager import 
 from via.shared.orchestration.evaluation_process_manager.saga_orm import EvaluationSagaModel
 from via.shared.orchestration.evaluation_process_manager.states import EvaluationSagaStatus
 from via.shared.outbox.models import OutboxMessageModel, OutboxStatus
+from via.bounded_contexts.recommendation.interfaces.recommendation_consumer import RecommendationConsumer
+from via.shared.orchestration.evaluation_process_manager.commands import GENERAR_RECOMENDACION_SOLICITADA
 from via.shared.outbox.relay_worker import RelayWorker
 from via.shared.runtime.bridges import (
     SqlAlchemyAgroenvVectorBridge,
@@ -78,6 +80,11 @@ from via.shared.runtime.bridges import (
 
 _TERMINAL_STATUSES: frozenset[str] = frozenset({
     EvaluationSagaStatus.EVALUACION_COMPLETADA.value,
+    EvaluationSagaStatus.RECOMENDACION_COMPLETADA.value,
+    EvaluationSagaStatus.FALLIDA.value,
+})
+
+_RECOMMENDATION_ONLY_TERMINAL_STATUSES: frozenset[str] = frozenset({
     EvaluationSagaStatus.RECOMENDACION_COMPLETADA.value,
     EvaluationSagaStatus.FALLIDA.value,
 })
@@ -244,8 +251,16 @@ def _print_mcda_result(session_factory, evaluation_id: UUID) -> None:
 # ─── Runtime construction ─────────────────────────────────────────────────────
 
 
-def _build_relay(session_factory, settings) -> RelayWorker:
-    """Build a RelayWorker wired with the real GEE extraction client."""
+def _build_relay(
+    session_factory,
+    settings,
+    recommendation_consumer: RecommendationConsumer | None = None,
+) -> RelayWorker:
+    """Build a RelayWorker wired with the real GEE extraction client.
+
+    Pass a RecommendationConsumer to also wire recommendation generation (GENERAR_RECOMENDACION_SOLICITADA).
+    Without it, that command is ignored by the relay (saga reaches EVALUACION_COMPLETADA only).
+    """
 
     gee_client = GeeExtractionClient(settings=settings)
 
@@ -285,6 +300,9 @@ def _build_relay(session_factory, settings) -> RelayWorker:
     bus.register(INICIAR_EXTRACCION_AGROAMBIENTAL, extraction_consumer.handle)
     bus.register(EJECUTAR_EVALUACION_VIABILIDAD, evaluation_consumer.handle)
 
+    if recommendation_consumer is not None:
+        bus.register(GENERAR_RECOMENDACION_SOLICITADA, recommendation_consumer.handle)
+
     return RelayWorker(session_factory=session_factory, event_bus=bus, batch_size=20)
 
 
@@ -298,9 +316,15 @@ def run_rounds(
     max_rounds: int,
     pause_seconds: float,
     until_completed: bool,
+    terminal_statuses: frozenset[str] | None = None,
 ) -> str | None:
-    """Run up to max_rounds processing rounds; return the final saga status."""
+    """Run up to max_rounds processing rounds; return the final saga status.
 
+    terminal_statuses overrides the default _TERMINAL_STATUSES set when until_completed=True.
+    Pass _RECOMMENDATION_ONLY_TERMINAL_STATUSES to continue past EVALUACION_COMPLETADA.
+    """
+
+    resolved_terminal = terminal_statuses if terminal_statuses is not None else _TERMINAL_STATUSES
     final_status: str | None = None
 
     for round_num in range(1, max_rounds + 1):
@@ -315,7 +339,7 @@ def run_rounds(
         print(f"  Estado de la saga                 : {status}")
         final_status = status
 
-        if until_completed and status in _TERMINAL_STATUSES:
+        if until_completed and status in resolved_terminal:
             print(f"  → Estado terminal alcanzado: {status}")
             break
 

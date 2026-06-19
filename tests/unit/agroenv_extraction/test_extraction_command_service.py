@@ -19,6 +19,9 @@ from via.shared.orchestration.evaluation_process_manager.events import EXTRACCIO
 from via.shared.outbox.models import OutboxMessageModel
 
 
+LONG_SOURCE = "GEE:ECMWF/ERA5_LAND/MONTHLY_AGGR:temperature_2m:centroid_sample:scale=11132"
+
+
 def test_service_persists_vector_marks_idempotency_and_emits_success_event_in_one_transaction() -> None:
     session = FakeSession()
     service = _service(session, FakeExtractionClient(ExtractionClientResult(0.8, "stub", date(2026, 1, 15))))
@@ -38,6 +41,24 @@ def test_service_persists_vector_marks_idempotency_and_emits_success_event_in_on
     assert outbox.payload_json["variables"][0]["unit"] == "index"
     assert outbox.payload_json["variables"][0]["quality_mask"] == {"cloud": "masked"}
     assert outbox.payload_json["variables"][0]["fallback_allowed"] is True
+
+
+def test_service_persists_long_gee_source_and_emits_vector_generated_without_failure() -> None:
+    session = FakeSession()
+    service = _service(session, FakeExtractionClient(ExtractionClientResult(24.7, LONG_SOURCE, date(2026, 6, 18))))
+    message = _message(fallback_allowed=True)
+
+    service.handle_start_command(message)
+
+    outbox = _single_outbox(session)
+    saved_vector = session.saved_vectors[0]
+    assert session.commits == 1
+    assert session.rollbacks == 0
+    assert outbox.message_type == VECTOR_AGROAMBIENTAL_GENERADO
+    assert outbox.message_type != EXTRACCION_FALLIDA
+    assert saved_vector.variables[0].source == LONG_SOURCE
+    assert outbox.payload_json["variables"][0]["source"] == LONG_SOURCE
+    assert "centroid_sample" in outbox.payload_json["variables"][0]["source"]
 
 
 def test_duplicate_message_is_discarded_without_repeating_effects() -> None:

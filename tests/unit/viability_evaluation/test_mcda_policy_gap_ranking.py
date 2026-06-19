@@ -26,6 +26,22 @@ def test_critical_no_viable_policy_assigns_no_viable_and_limiting_factor() -> No
     assert result.viability_category == ViabilityCategory.NO_VIABLE
     assert result.limiting_factors[0].criterion_id == "rain"
     assert result.limiting_factors[0].policy == CriticalPolicy.NO_VIABLE
+    assert result.score == 0.0
+
+
+def test_non_critical_zero_membership_does_not_collapse_critical_policy_score() -> None:
+    result = CriticalPolicyService().apply(
+        aggregated_memberships={"rain": 1.0, "deficit_hidrico": 0.0},
+        hybrid_weights={"rain": 0.5, "deficit_hidrico": 0.5},
+        calc_condition=CalcCondition.DEFINITIVO,
+        critical_traces=[],
+        critical_criteria=set(),
+        non_critical_membership_floor=0.05,
+    )
+
+    assert result.effective_memberships["deficit_hidrico"] == pytest.approx(0.05)
+    assert result.score == pytest.approx(0.05**0.5)
+    assert result.score > 0.0
 
 
 def test_critical_penalize_policy_applies_penalty_and_limiting_factor() -> None:
@@ -180,6 +196,16 @@ def test_ranking_excludes_no_conclusive_crops() -> None:
 def test_ranking_excludes_no_viable_crops() -> None:
     ranked = RankingService().assign_rank_positions([
         _crop("cacao", 0.9, viability_category=ViabilityCategory.NO_VIABLE),
+        _crop("maiz", 0.7),
+    ])
+
+    assert _by_crop(ranked)["cacao"].rank_position is None
+    assert _by_crop(ranked)["maiz"].rank_position == 1
+
+
+def test_ranking_excludes_no_concluyente_viability_category() -> None:
+    ranked = RankingService().assign_rank_positions([
+        _crop("cacao", 0.9, viability_category=ViabilityCategory.NO_CONCLUYENTE),
         _crop("maiz", 0.7),
     ])
 

@@ -10,6 +10,7 @@ from via.config import (
     DEFAULT_MCDA_CONDICIONAL_THRESHOLD,
     DEFAULT_MCDA_ENTROPY_MIN_DIVERGENCE,
     DEFAULT_MCDA_MIN_TEMPORAL_SERIES_LENGTH,
+    DEFAULT_MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR,
     DEFAULT_MCDA_PENALIZE_EPSILON,
     DEFAULT_MCDA_VIABLE_THRESHOLD,
     DEFAULT_RULEBOOK_WEIGHT_TOLERANCE,
@@ -33,6 +34,7 @@ def test_default_settings_match_lote1_contract() -> None:
     assert settings.mcda_viable_threshold == DEFAULT_MCDA_VIABLE_THRESHOLD
     assert settings.mcda_condicional_threshold == DEFAULT_MCDA_CONDICIONAL_THRESHOLD
     assert settings.mcda_penalize_epsilon == DEFAULT_MCDA_PENALIZE_EPSILON
+    assert settings.mcda_non_critical_membership_floor == DEFAULT_MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR
     assert settings.rulebook_weight_tolerance == DEFAULT_RULEBOOK_WEIGHT_TOLERANCE
     assert settings.gee_enabled is False
     assert settings.gee_project is None
@@ -235,6 +237,7 @@ def test_mcda_additional_settings_are_loaded_from_environment() -> None:
             "MCDA_VIABLE_THRESHOLD": "0.8",
             "MCDA_CONDICIONAL_THRESHOLD": "0.5",
             "MCDA_PENALIZE_EPSILON": "0.02",
+            "MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR": "0.08",
         }
     )
 
@@ -243,6 +246,7 @@ def test_mcda_additional_settings_are_loaded_from_environment() -> None:
     assert settings.mcda_viable_threshold == 0.8
     assert settings.mcda_condicional_threshold == 0.5
     assert settings.mcda_penalize_epsilon == 0.02
+    assert settings.mcda_non_critical_membership_floor == 0.08
 
 
 @pytest.mark.parametrize(
@@ -254,6 +258,8 @@ def test_mcda_additional_settings_are_loaded_from_environment() -> None:
         ("MCDA_CONDICIONAL_THRESHOLD", "-0.1"),
         ("MCDA_PENALIZE_EPSILON", "0"),
         ("MCDA_PENALIZE_EPSILON", "1.1"),
+        ("MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR", "-0.1"),
+        ("MCDA_NON_CRITICAL_MEMBERSHIP_FLOOR", "1.1"),
     ],
 )
 def test_additional_mcda_settings_reject_invalid_values(key: str, value: str) -> None:

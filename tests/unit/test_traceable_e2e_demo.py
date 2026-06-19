@@ -312,7 +312,9 @@ def test_artifact_names_has_all_expected_keys() -> None:
         "input", "auth", "parcel_api", "parcel_db", "rulebooks",
         "rulebook_details", "extraction_bindings", "evaluation_api",
         "outbox_timeline", "saga_timeline", "agroenv_vector", "agroenv_entries",
-        "mcda_results", "criterion_details", "final_api", "report",
+        "mcda_results", "criterion_details", "final_api",
+        "recommendation_summary", "recommendation_sections",
+        "report",
     }
     assert set(_mod.ARTIFACT_NAMES.keys()) == expected_keys
 

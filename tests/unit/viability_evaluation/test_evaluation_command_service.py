@@ -173,6 +173,73 @@ def test_critical_penalize_generates_limiting_factor_and_penalty_factor_changes_
     assert result.viability_category == ViabilityCategory.NO_VIABLE
 
 
+def test_non_critical_deficit_hidrico_zero_creates_gap_without_automatic_no_viable() -> None:
+    evaluation = PureMcdaEvaluationEngine().evaluate(
+        _command(),
+        _multi_vector(
+            {
+                "temperatura": 20.0,
+                "pendiente": 3.0,
+                "deficit_hidrico": 1200.0,
+            }
+        ),
+        [
+            _multi_rulebook(
+                [
+                    _spec("temperatura", "temperatura", 0.45, {"a": 10.0, "b": 15.0, "c": 25.0, "d": 30.0}),
+                    _spec("pendiente", "pendiente", 0.45, {"a": 0.0, "b": 0.0, "c": 8.0, "d": 15.0}),
+                    _spec("deficit_hidrico", "deficit_hidrico", 0.10, {"a": 0.0, "b": 0.0, "c": 200.0, "d": 800.0}),
+                ]
+            )
+        ],
+        _settings(),
+    )
+    result = evaluation.crop_results[0]
+
+    assert result.score == pytest.approx(0.05**0.10)
+    assert result.viability_category != ViabilityCategory.NO_VIABLE
+    assert result.rank_position == 1
+    assert result.limiting_factors == []
+    assert [gap.criterion_id for gap in result.gaps] == ["deficit_hidrico"]
+    assert result.gaps[0].observed_value == 1200.0
+
+
+def test_papa_altitudinal_critical_zero_still_forces_no_viable() -> None:
+    evaluation = PureMcdaEvaluationEngine().evaluate(
+        _command(),
+        _multi_vector(
+            {
+                "temperatura": 20.0,
+                "aptitud_altitudinal": 422.49,
+            },
+            crop_id="demo_papa",
+        ),
+        [
+            _multi_rulebook(
+                [
+                    _spec("temperatura", "temperatura", 0.5, {"a": 10.0, "b": 15.0, "c": 25.0, "d": 30.0}),
+                    _spec(
+                        "aptitud_altitudinal",
+                        "elevacion_m",
+                        0.5,
+                        {"a": 1000.0, "b": 2800.0, "c": 3500.0, "d": 4000.0},
+                        critical_policy=CriticalPolicy.NO_VIABLE.value,
+                    ),
+                ],
+                crop_id="demo_papa",
+            )
+        ],
+        _settings(),
+    )
+    result = evaluation.crop_results[0]
+
+    assert result.crop_id == "demo_papa"
+    assert result.score == 0.0
+    assert result.viability_category == ViabilityCategory.NO_VIABLE
+    assert result.rank_position is None
+    assert result.limiting_factors[0].criterion_id == "aptitud_altitudinal"
+
+
 def test_vector_brechas_generado_contains_real_calculated_gaps() -> None:
     evaluation = PureMcdaEvaluationEngine().evaluate(_command(), _vector([("2026-01", 5.0), ("2026-02", 15.0)]), [_rulebook()], _settings())
 
@@ -420,6 +487,33 @@ def _rulebook(critical_policy: str = CriticalPolicy.PENALIZE.value, penalty_fact
     )
 
 
+def _multi_rulebook(specs: list[EvaluationCriterionSpec], crop_id: str = "cacao") -> RulebookEvaluationData:
+    return RulebookEvaluationData(crop_id=crop_id, rulebook_id=uuid4(), version=2, criteria=specs)
+
+
+def _spec(
+    criterion_id: str,
+    variable_name: str,
+    w_ahp: float,
+    membership_fn: dict,
+    critical_policy: str = "NONE",
+    penalty_factor: float | None = None,
+) -> EvaluationCriterionSpec:
+    return EvaluationCriterionSpec(
+        criterion_id=criterion_id,
+        crop_id="cacao",
+        phase_id="potencial",
+        variable_name=variable_name,
+        w_ahp=w_ahp,
+        phase_weight=1.0,
+        temporal_periods=[{"period_key": "anual", "temporal_weight": 1.0}],
+        membership_fn={"type": "TRAPEZOIDAL", **membership_fn},
+        critical_policy=critical_policy,
+        penalty_factor=penalty_factor,
+        doc_source="manual",
+    )
+
+
 def _vector(period_values: list[tuple[str, float]]) -> AgroenvVectorData:
     return AgroenvVectorData(
         evaluation_id=UUID(_EVALUATION_ID),
@@ -439,6 +533,29 @@ def _vector(period_values: list[tuple[str, float]]) -> AgroenvVectorData:
                 source="stub",
             )
             for period_key, value in period_values
+        ],
+    )
+
+
+def _multi_vector(criterion_values: dict[str, float], crop_id: str = "cacao") -> AgroenvVectorData:
+    return AgroenvVectorData(
+        evaluation_id=UUID(_EVALUATION_ID),
+        parcel_id=uuid4(),
+        variables=[
+            AgroenvVariableData(
+                variable_name=criterion_id,
+                criterion_id=criterion_id,
+                crop_id=crop_id,
+                phase_id="potencial",
+                period_key="anual",
+                value=value,
+                unit="demo",
+                status="OK",
+                dataset_key="gee",
+                band=criterion_id,
+                source="stub",
+            )
+            for criterion_id, value in criterion_values.items()
         ],
     )
 

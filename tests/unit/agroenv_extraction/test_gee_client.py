@@ -45,7 +45,7 @@ def test_query_uses_dataset_band_polygon_temporal_period_and_reducer() -> None:
 
     assert result is not None
     assert result.value == 0.72
-    assert result.source == "GEE:sentinel-2:B08"
+    assert result.source == "GEE:sentinel-2:B08:polygon_mean:scale=10"
     assert fake_ee.collections[0].dataset_key == "sentinel-2"
     assert fake_ee.collections[0].selected_band == "B08"
     assert fake_ee.collections[0].date_filter == ("2026-02-01", "2026-02-28")
@@ -399,7 +399,7 @@ def _request(
         parcel_id=uuid4(),
         parcel_geometry=parcel_geometry or {"type": "MultiPolygon", "coordinates": [_polygon()["coordinates"]]},
         temporal_window={"start": "2026-01-01", "end": "2026-01-31"},
-        variable_name="ndvi",
+        variable_name="nir_reflectancia",
         criterion_id="vigor",
         crop_id="cacao",
         phase_id="floracion",
@@ -432,7 +432,7 @@ def _command_payload(fallback_allowed: bool):
             "required_extraction_spec": {
                 "variables": [
                     {
-                        "variable_name": "ndvi",
+                        "variable_name": "nir_reflectancia",
                         "criterion_id": "vigor",
                         "crop_id": "cacao",
                         "phase_id": "floracion",

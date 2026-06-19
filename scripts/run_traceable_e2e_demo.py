@@ -52,11 +52,14 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from process_outbox_for_evaluation import (  # noqa: E402
+    _RECOMMENDATION_ONLY_TERMINAL_STATUSES,
     _TERMINAL_STATUSES,
     _build_relay,
     run_rounds,
 )
 from seed_demo_rulebooks import DEMO_CROPS  # noqa: E402
+
+from via.shared.runtime.application_runtime import build_recommendation_consumer, build_recommendation_drafting_provider  # noqa: E402
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -89,6 +92,8 @@ ARTIFACT_NAMES = {
     "mcda_results": "12_mcda_results.json",
     "criterion_details": "13_mcda_criterion_details.json",
     "final_api": "14_final_api_result.json",
+    "recommendation_summary": "15_recommendation_summary.json",
+    "recommendation_sections": "16_recommendation_sections.json",
     "report": "trace_report.md",
 }
 
@@ -145,6 +150,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--until-completed",
         action="store_true",
         help="Stop processing when evaluation reaches a terminal status",
+    )
+    parser.add_argument(
+        "--until-recommendation-completed",
+        action="store_true",
+        help="Continue past EVALUACION_COMPLETADA until RECOMENDACION_COMPLETADA or FALLIDA",
     )
     parser.add_argument(
         "--dry-run",
@@ -711,6 +721,25 @@ def query_criterion_details(session_factory: Any, result_ids: list[str]) -> list
         return []
 
 
+def query_recommendation(session_factory: Any, evaluation_id: UUID) -> dict | None:
+    """Return the most recent recommendation for an evaluation, or None."""
+    try:
+        with session_factory() as session:
+            row = session.execute(
+                text(
+                    "SELECT id, evaluation_id, crop_id, text, fragment_ids, provider, generated_at "
+                    "FROM transactional.recommendations "
+                    "WHERE evaluation_id = :eid "
+                    "ORDER BY generated_at DESC LIMIT 1"
+                ),
+                {"eid": str(evaluation_id)},
+            ).mappings().first()
+        return _row_to_dict(row) if row else None
+    except Exception as exc:
+        print(f"AVISO: Error consultando recomendacion: {exc}")
+        return None
+
+
 # ─── Artifact management ──────────────────────────────────────────────────────
 
 
@@ -1013,6 +1042,29 @@ def generate_trace_report(artifacts_dir: pathlib.Path, ctx: dict) -> None:
 
     lines += ["## 17. Respuesta Final de la API", "```json", safe_json_dump(final), "```", ""]
 
+    rec = ctx.get("recommendation")
+    lines += ["## 18. Recomendacion Generada"]
+    if rec:
+        lines += [
+            f"- recommendation_id: `{rec.get('id','?')}`",
+            f"- crop_id:           `{rec.get('crop_id','?')}`",
+            f"- provider:          `{rec.get('provider','?')}`",
+            f"- generated_at:      `{rec.get('generated_at','?')}`",
+            f"- fragment_ids:      `{rec.get('fragment_ids', [])}`",
+        ]
+        fragment_ids = rec.get("fragment_ids") or []
+        if not fragment_ids:
+            lines.append(
+                "\n> AVISO: No se encontro evidencia documental suficiente para esta recomendacion."
+            )
+        lines.append("\n> NOTA: El proveedor LLM no recalculo scores, pesos, membresías, rankings ni categorías.")
+        lines += ["", "### Texto de la recomendacion", "```", str(rec.get("text", "")), "```", ""]
+    else:
+        lines += [
+            "_Recomendacion no disponible (saga no alcanzo RECOMENDACION_COMPLETADA o --until-recommendation-completed no fue especificado)._",
+            "",
+        ]
+
     lines += ["---", DEMO_DISCLAIMER, ""]
 
     report_path = artifacts_dir / ARTIFACT_NAMES["report"]
@@ -1169,14 +1221,27 @@ def main(argv: list[str] | None = None) -> None:
 
         print(f"\n[INFO] Procesando Outbox (max-rounds={args.max_rounds}, pause={args.pause_seconds}s)...")
         settings = load_settings({**os.environ, "GEE_ENABLED": "true"})
-        relay = _build_relay(session_factory, settings)
+
+        until_rec = getattr(args, "until_recommendation_completed", False)
+        rec_consumer = None
+        if until_rec:
+            drafting_provider = build_recommendation_drafting_provider(settings)
+            rec_consumer = build_recommendation_consumer(
+                session_factory,
+                drafting_provider,
+                provider_name=settings.llm_drafting_provider,
+            )
+            print(f"[INFO] Modo recomendacion activado (provider={settings.llm_drafting_provider})")
+
+        relay = _build_relay(session_factory, settings, recommendation_consumer=rec_consumer)
         final_status = run_rounds(
             relay=relay,
             session_factory=session_factory,
             evaluation_id=eval_uuid,
             max_rounds=args.max_rounds,
             pause_seconds=args.pause_seconds,
-            until_completed=args.until_completed,
+            until_completed=args.until_completed or until_rec,
+            terminal_statuses=_RECOMMENDATION_ONLY_TERMINAL_STATUSES if until_rec else None,
         )
 
         outbox_after = snapshot_outbox(session_factory, eval_uuid)
@@ -1202,6 +1267,29 @@ def main(argv: list[str] | None = None) -> None:
             "final_status": final_status,
         }
 
+        rec_data = query_recommendation(session_factory, eval_uuid)
+
+        rec_summary: dict = {}
+        rec_sections: list[dict] = []
+        if rec_data:
+            fragment_ids = rec_data.get("fragment_ids") or []
+            rec_summary = {
+                "recommendation_id": str(rec_data.get("id", "")),
+                "evaluation_id": str(eval_uuid),
+                "crop_id": rec_data.get("crop_id", ""),
+                "provider": rec_data.get("provider", ""),
+                "generated_at": rec_data.get("generated_at", ""),
+                "fragment_count": len(fragment_ids),
+                "has_evidence": len(fragment_ids) > 0,
+            }
+            rec_sections = [
+                {
+                    "section_type": "FULL_TEXT",
+                    "title": "Texto completo",
+                    "content": rec_data.get("text", ""),
+                }
+            ]
+
         write_artifact(artifacts_dir, ARTIFACT_NAMES["outbox_timeline"], outbox_timeline)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["saga_timeline"], saga_timeline)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["agroenv_vector"], agroenv_vec or {})
@@ -1209,6 +1297,8 @@ def main(argv: list[str] | None = None) -> None:
         write_artifact(artifacts_dir, ARTIFACT_NAMES["mcda_results"], eval_results)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["criterion_details"], crit_details)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["final_api"], final_api)
+        write_artifact(artifacts_dir, ARTIFACT_NAMES["recommendation_summary"], rec_summary)
+        write_artifact(artifacts_dir, ARTIFACT_NAMES["recommendation_sections"], rec_sections)
 
         context = {
             "geojson_file": args.geojson_file,
@@ -1229,6 +1319,7 @@ def main(argv: list[str] | None = None) -> None:
             "criterion_details": crit_details,
             "final_api_result": final_api,
             "final_status": final_status,
+            "recommendation": rec_data,
         }
         generate_trace_report(artifacts_dir, context)
         _print_summary(parcel_id, evaluation_id, artifacts_dir, final_api, saga_timeline, allow_failed=args.allow_failed)

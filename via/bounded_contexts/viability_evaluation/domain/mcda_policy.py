@@ -10,8 +10,10 @@ from via.bounded_contexts.viability_evaluation.domain.crop_result import CropRes
 from via.bounded_contexts.viability_evaluation.domain.limiting_factor import LimitingFactor
 from via.bounded_contexts.viability_evaluation.domain.mcda_completion import (
     DEFAULT_CONDICIONAL_THRESHOLD,
+    DEFAULT_NON_CRITICAL_MEMBERSHIP_FLOOR,
     DEFAULT_VIABLE_THRESHOLD,
     MulticriteriaAggregationService,
+    NonCriticalMembershipFloorService,
     ViabilityClassifierService,
 )
 from via.bounded_contexts.viability_evaluation.domain.value_objects import (
@@ -94,11 +96,13 @@ class CriticalPolicyService:
         self,
         aggregation_service: MulticriteriaAggregationService | None = None,
         classifier_service: ViabilityClassifierService | None = None,
+        floor_service: NonCriticalMembershipFloorService | None = None,
     ) -> None:
         """Create the pure critical-policy service."""
 
         self._aggregation_service = aggregation_service or MulticriteriaAggregationService()
         self._classifier_service = classifier_service or ViabilityClassifierService()
+        self._floor_service = floor_service or NonCriticalMembershipFloorService()
 
     def apply(
         self,
@@ -106,7 +110,9 @@ class CriticalPolicyService:
         hybrid_weights: dict[str, Real],
         calc_condition: CalcCondition,
         critical_traces: list[CriticalCriterionTrace],
+        critical_criteria: set[str] | None = None,
         penalize_epsilon: float = DEFAULT_PENALIZE_EPSILON,
+        non_critical_membership_floor: float = DEFAULT_NON_CRITICAL_MEMBERSHIP_FLOOR,
         viable_threshold: float = DEFAULT_VIABLE_THRESHOLD,
         condicional_threshold: float = DEFAULT_CONDICIONAL_THRESHOLD,
     ) -> CriticalPolicyResult:
@@ -118,7 +124,12 @@ class CriticalPolicyService:
         if calc_condition == CalcCondition.NO_CONCLUYENTE:
             return CriticalPolicyResult(score=None, viability_category=None)
 
-        effective_memberships = {criterion_id: float(membership) for criterion_id, membership in aggregated_memberships.items()}
+        critical_criteria = critical_criteria or {trace.criterion_id for trace in critical_traces}
+        effective_memberships = self._floor_service.apply(
+            aggregated_memberships,
+            critical_criteria,
+            non_critical_membership_floor,
+        )
         limiting_factors: list[LimitingFactor] = []
         no_viable_forced = False
         penalty_factors: list[float] = []
@@ -190,7 +201,7 @@ class RankingService:
             (index, result)
             for index, result in indexed_results
             if result.calc_condition != CalcCondition.NO_CONCLUYENTE
-            and result.viability_category != ViabilityCategory.NO_VIABLE
+            and result.viability_category not in {ViabilityCategory.NO_VIABLE, ViabilityCategory.NO_CONCLUYENTE}
             and result.score is not None
         ]
         sorted_eligible = sorted(eligible, key=lambda item: (-float(item[1].score), item[1].crop_id))

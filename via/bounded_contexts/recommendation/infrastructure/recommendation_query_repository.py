@@ -86,5 +86,5 @@ class RecommendationQueryRepository:
             title=f"Recomendación para {row.crop_id}",
             fragment_ids=[UUID(fid) for fid in (row.fragment_ids or [])],
             created_at=row.generated_at,
-            provider="template",
+            provider=row.provider,
         )

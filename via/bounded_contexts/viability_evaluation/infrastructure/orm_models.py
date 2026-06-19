@@ -23,7 +23,7 @@ class EvaluationResultModel(Base):
     crop_id: Mapped[str] = mapped_column(String(100), nullable=False)
     score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     calc_condition: Mapped[str] = mapped_column(String(20), nullable=False)
-    viability_category: Mapped[str] = mapped_column(String(15), nullable=False)
+    viability_category: Mapped[str] = mapped_column(String(20), nullable=False)
     rank_position: Mapped[int | None] = mapped_column(Integer)
     rulebook_version: Mapped[int] = mapped_column(Integer, nullable=False)
     entropy_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

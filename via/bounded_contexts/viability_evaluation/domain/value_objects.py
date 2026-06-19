@@ -24,6 +24,7 @@ class ViabilityCategory(StrEnum):
     VIABLE = "VIABLE"
     CONDICIONAL = "CONDICIONAL"
     NO_VIABLE = "NO_VIABLE"
+    NO_CONCLUYENTE = "NO_CONCLUYENTE"
 
 
 class CriticalPolicy(StrEnum):

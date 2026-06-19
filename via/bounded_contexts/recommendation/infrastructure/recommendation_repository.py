@@ -12,18 +12,19 @@ from via.bounded_contexts.recommendation.infrastructure.orm_models import Recomm
 class SQLAlchemyRecommendationRepository(IRecommendationRepository):
     """Persist recommendations in the transactional schema."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, provider: str = "template") -> None:
         """Create the repository with a synchronous SQLAlchemy session."""
 
         self._session = session
+        self._provider = provider
 
     def save(self, recommendation: Recommendation) -> None:
         """Persist a recommendation without committing."""
 
-        self._session.add(recommendation_to_model(recommendation))
+        self._session.add(recommendation_to_model(recommendation, self._provider))
 
 
-def recommendation_to_model(recommendation: Recommendation) -> RecommendationModel:
+def recommendation_to_model(recommendation: Recommendation, provider: str = "template") -> RecommendationModel:
     """Map a recommendation aggregate to its ORM row."""
 
     return RecommendationModel(
@@ -32,4 +33,5 @@ def recommendation_to_model(recommendation: Recommendation) -> RecommendationMod
         crop_id=recommendation.crop_id,
         text=recommendation.text,
         fragment_ids=[str(fragment_id) for fragment_id in recommendation.fragment_ids],
+        provider=provider,
     )

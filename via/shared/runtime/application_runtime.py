@@ -88,9 +88,10 @@ def configure_application_runtime(
         SqlAlchemyParcelGeometryBridge(resolved_session_factory),
     )
     drafting_provider = build_recommendation_drafting_provider(resolved_settings)
-    resolved_recommendation_consumer = recommendation_consumer or _recommendation_consumer(
+    resolved_recommendation_consumer = recommendation_consumer or build_recommendation_consumer(
         resolved_session_factory,
         drafting_provider,
+        provider_name=resolved_settings.llm_drafting_provider,
     )
     resolved_extraction_consumer = extraction_consumer or _extraction_consumer(resolved_session_factory)
     resolved_evaluation_consumer = evaluation_consumer or _evaluation_consumer(
@@ -150,10 +151,13 @@ class RuntimeDocumentEvidencePort(IDocumentEvidencePort):
 # ─── Consumer factory helpers ──────────────────────────────────────────────────
 
 
-def _recommendation_consumer(
+def build_recommendation_consumer(
     session_factory: sessionmaker[Session],
     drafting_provider: IRecommendationDraftingProvider,
+    provider_name: str = "template",
 ) -> RecommendationConsumer:
+    """Build a fully wired RecommendationConsumer for use in relay workers and tests."""
+
     eval_results_bridge = SqlAlchemyEvaluationResultsBridge(session_factory)
 
     def service_factory(session: Session) -> RecommendationCommandService:
@@ -161,7 +165,7 @@ def _recommendation_consumer(
             evaluation_results_port=eval_results_bridge,
             evidence_port=RuntimeDocumentEvidencePort(),
             drafting_provider=drafting_provider,
-            repository=SQLAlchemyRecommendationRepository(session),
+            repository=SQLAlchemyRecommendationRepository(session, provider=provider_name),
         )
 
     return RecommendationConsumer(
@@ -170,6 +174,9 @@ def _recommendation_consumer(
             service_factory=service_factory,
         )
     )
+
+
+_recommendation_consumer = build_recommendation_consumer
 
 
 def _extraction_consumer(session_factory: sessionmaker[Session]) -> AgroenvExtractionConsumer:

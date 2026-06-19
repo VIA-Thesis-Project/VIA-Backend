@@ -8,6 +8,7 @@ from via.bounded_contexts.viability_evaluation.domain.mcda_completion import (
     BasicCropEvaluationService,
     MissingCriteriaService,
     MulticriteriaAggregationService,
+    NonCriticalMembershipFloorService,
     ViabilityClassifierService,
 )
 from via.bounded_contexts.viability_evaluation.domain.value_objects import CalcCondition, ViabilityCategory
@@ -66,6 +67,32 @@ def test_non_critical_missing_is_not_treated_as_zero_membership() -> None:
 
     assert result.score == pytest.approx(1.0)
     assert result.calc_condition == CalcCondition.PARCIAL
+
+
+def test_non_critical_zero_membership_uses_floor_before_geometric_mean() -> None:
+    result = BasicCropEvaluationService().evaluate(
+        crop_id="cacao",
+        aggregated_memberships={"rain": 1.0, "deficit_hidrico": 0.0},
+        hybrid_weights={"rain": 0.5, "deficit_hidrico": 0.5},
+        missing_criteria=[],
+        critical_criteria=set(),
+        non_critical_membership_floor=0.05,
+    )
+
+    assert result.score == pytest.approx(0.05**0.5)
+    assert result.score > 0.0
+
+
+def test_membership_floor_applies_only_to_non_critical_criteria() -> None:
+    adjusted = NonCriticalMembershipFloorService().apply(
+        aggregated_memberships={"altitud": 0.0, "deficit_hidrico": 0.0, "temperatura": 0.8},
+        critical_criteria={"altitud"},
+        membership_floor=0.05,
+    )
+
+    assert adjusted["altitud"] == 0.0
+    assert adjusted["deficit_hidrico"] == pytest.approx(0.05)
+    assert adjusted["temperatura"] == pytest.approx(0.8)
 
 
 def test_unrecognized_variable_is_recorded_and_ignored() -> None:

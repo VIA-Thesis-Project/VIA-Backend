@@ -17,6 +17,7 @@ from via.bounded_contexts.viability_evaluation.domain.value_objects import (
 
 DEFAULT_VIABLE_THRESHOLD = 0.70
 DEFAULT_CONDICIONAL_THRESHOLD = 0.40
+DEFAULT_NON_CRITICAL_MEMBERSHIP_FLOOR = 0.05
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,27 @@ class MulticriteriaAggregationService:
         return weighted_geometric_mean(aggregated_memberships, hybrid_weights)
 
 
+class NonCriticalMembershipFloorService:
+    """Apply a minimum membership floor only to non-critical criteria."""
+
+    def apply(
+        self,
+        aggregated_memberships: dict[str, Real],
+        critical_criteria: set[str],
+        membership_floor: float = DEFAULT_NON_CRITICAL_MEMBERSHIP_FLOOR,
+    ) -> dict[str, float]:
+        """Return memberships where non-critical zero values remain strong penalties, not vetoes."""
+
+        ensure_unit_interval(membership_floor, "non_critical_membership_floor")
+        adjusted: dict[str, float] = {}
+        for criterion_id, membership in aggregated_memberships.items():
+            ensure_non_empty(criterion_id, "criterion_id")
+            ensure_unit_interval(membership, "membership")
+            value = float(membership)
+            adjusted[criterion_id] = value if criterion_id in critical_criteria else max(value, membership_floor)
+        return adjusted
+
+
 class ViabilityClassifierService:
     """Classify final score using configurable viability thresholds."""
 
@@ -168,12 +190,14 @@ class BasicCropEvaluationService:
         missing_criteria_service: MissingCriteriaService | None = None,
         aggregation_service: MulticriteriaAggregationService | None = None,
         classifier_service: ViabilityClassifierService | None = None,
+        floor_service: NonCriticalMembershipFloorService | None = None,
     ) -> None:
         """Create the pure domain service composition."""
 
         self._missing_criteria_service = missing_criteria_service or MissingCriteriaService()
         self._aggregation_service = aggregation_service or MulticriteriaAggregationService()
         self._classifier_service = classifier_service or ViabilityClassifierService()
+        self._floor_service = floor_service or NonCriticalMembershipFloorService()
 
     def evaluate(
         self,
@@ -185,6 +209,7 @@ class BasicCropEvaluationService:
         unrecognized_variables: list[str] | None = None,
         viable_threshold: float = DEFAULT_VIABLE_THRESHOLD,
         condicional_threshold: float = DEFAULT_CONDICIONAL_THRESHOLD,
+        non_critical_membership_floor: float = DEFAULT_NON_CRITICAL_MEMBERSHIP_FLOOR,
     ) -> BasicCropEvaluationResult:
         """Return the basic crop score and category without ranking or persistence."""
 
@@ -206,7 +231,12 @@ class BasicCropEvaluationService:
                 unrecognized_variables=participating.unrecognized_variables,
             )
 
-        score = self._aggregation_service.aggregate(participating.memberships, participating.weights)
+        effective_memberships = self._floor_service.apply(
+            participating.memberships,
+            critical_criteria,
+            non_critical_membership_floor,
+        )
+        score = self._aggregation_service.aggregate(effective_memberships, participating.weights)
         category = self._classifier_service.classify(score, participating.calc_condition, viable_threshold, condicional_threshold)
         return BasicCropEvaluationResult(
             crop_id=crop_id,

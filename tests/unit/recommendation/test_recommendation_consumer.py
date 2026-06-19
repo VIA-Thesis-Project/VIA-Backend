@@ -121,7 +121,7 @@ def test_template_provider_does_not_call_external_services_or_recalculate_scores
     assert provider.last_context.crop_result.score == 0.82
     assert provider.last_context.crop_result.rank_position == 1
     assert provider.last_context.crop_result.gaps[0].gap_value == -4.0
-    assert _recommendations(session)[0].text.startswith("Recomendacion para cacao: score=0.82")
+    assert _recommendations(session)[0].text.startswith("Recomendacion agronomica sustentada para cacao.")
 
 
 def test_technical_errors_are_not_hidden_as_failure_events() -> None:
