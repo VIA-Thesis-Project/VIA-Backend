@@ -25,7 +25,11 @@ from via.bounded_contexts.parcel_management.infrastructure.parcel_repository imp
 from via.bounded_contexts.parcel_management.interfaces.parcel_router import get_current_user as get_parcel_current_user
 from via.bounded_contexts.parcel_management.interfaces.parcel_router import get_parcel_command_service, get_parcel_query_service
 from via.bounded_contexts.parcel_management.interfaces.parcel_router import router as parcel_router
+from via.bounded_contexts.rulebook_management.application.command_service import RulebookCommandService
+from via.bounded_contexts.rulebook_management.application.query_service import RulebookQueryService
+from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import get_current_user as get_rulebook_current_user
+from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import get_rulebook_command_service, get_rulebook_query_service
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import router as rulebook_router
 from via.bounded_contexts.recommendation.application.recommendation_query_service import RecommendationQueryService
 from via.bounded_contexts.recommendation.infrastructure.recommendation_query_repository import RecommendationQueryRepository
@@ -58,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(recommendation_router)
     _wire_iam_dependencies(app, session_factory, settings)
     _wire_parcel_dependencies(app, session_factory, settings)
+    _wire_rulebook_dependencies(app, session_factory)
     _wire_evaluation_dependencies(app, session_factory)
     _wire_recommendation_dependencies(app, session_factory)
     return app
@@ -153,6 +158,34 @@ def _wire_parcel_dependencies(
 
     app.dependency_overrides[get_parcel_command_service] = _parcel_command_dep
     app.dependency_overrides[get_parcel_query_service] = _parcel_query_dep
+
+
+def _wire_rulebook_dependencies(
+    app: FastAPI,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Install real rulebook infrastructure into FastAPI dependency overrides."""
+
+    def _rulebook_command_dep() -> Generator[RulebookCommandService, None, None]:
+        session = session_factory()
+        try:
+            yield RulebookCommandService(repository=SqlAlchemyRulebookRepository(session))
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _rulebook_query_dep() -> Generator[RulebookQueryService, None, None]:
+        session = session_factory()
+        try:
+            yield RulebookQueryService(SqlAlchemyRulebookRepository(session))
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_rulebook_command_service] = _rulebook_command_dep
+    app.dependency_overrides[get_rulebook_query_service] = _rulebook_query_dep
 
 
 def _wire_recommendation_dependencies(
