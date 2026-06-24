@@ -61,6 +61,7 @@ class Settings:
     gee_project: str | None
     gee_service_account: str | None
     gee_private_key_file: str | None
+    gee_private_key_json: str | None
     gee_timeout_seconds: int
     gee_max_retries: int
     llm_drafting_provider: str
@@ -87,9 +88,12 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     """Load and validate settings from environment-like key/value data."""
 
     source = process_environ if environ is None else environ
+    raw_db_url = source.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    if raw_db_url.startswith("postgresql://"):
+        raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     settings = Settings(
         app_name=source.get("APP_NAME", DEFAULT_APP_NAME),
-        database_url=source.get("DATABASE_URL", DEFAULT_DATABASE_URL),
+        database_url=raw_db_url,
         db_schema_transactional=source.get(
             "DB_SCHEMA_TRANSACTIONAL",
             DEFAULT_TRANSACTIONAL_SCHEMA,
@@ -141,6 +145,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         gee_project=_read_optional_text(source, "GEE_PROJECT"),
         gee_service_account=_read_optional_text(source, "GEE_SERVICE_ACCOUNT"),
         gee_private_key_file=_read_optional_text(source, "GEE_PRIVATE_KEY_FILE"),
+        gee_private_key_json=_read_optional_text(source, "GEE_PRIVATE_KEY_JSON"),
         gee_timeout_seconds=_read_int(source, "GEE_TIMEOUT_SECONDS", str(DEFAULT_GEE_TIMEOUT_SECONDS)),
         gee_max_retries=_read_int(source, "GEE_MAX_RETRIES", str(DEFAULT_GEE_MAX_RETRIES)),
         llm_drafting_provider=source.get("LLM_DRAFTING_PROVIDER", DEFAULT_LLM_DRAFTING_PROVIDER).strip().lower(),
@@ -261,8 +266,10 @@ def validate_settings(settings: Settings) -> None:
             raise ConfigurationError("GEE_PROJECT is required when GEE_ENABLED=True")
         if not settings.gee_service_account:
             raise ConfigurationError("GEE_SERVICE_ACCOUNT is required when GEE_ENABLED=True")
-        if not settings.gee_private_key_file:
-            raise ConfigurationError("GEE_PRIVATE_KEY_FILE is required when GEE_ENABLED=True")
+        if not settings.gee_private_key_file and not settings.gee_private_key_json:
+            raise ConfigurationError(
+                "GEE_PRIVATE_KEY_FILE or GEE_PRIVATE_KEY_JSON is required when GEE_ENABLED=True"
+            )
 
 
 def _read_float(source: Mapping[str, str], key: str, default: str) -> float:

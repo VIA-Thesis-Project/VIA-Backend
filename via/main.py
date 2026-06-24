@@ -65,6 +65,11 @@ def create_app() -> FastAPI:
     _wire_rulebook_dependencies(app, session_factory)
     _wire_evaluation_dependencies(app, session_factory)
     _wire_recommendation_dependencies(app, session_factory)
+
+    @app.get("/health", tags=["ops"])
+    def health() -> dict:
+        return {"status": "ok"}
+
     return app
 
 

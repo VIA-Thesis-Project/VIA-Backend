@@ -81,10 +81,16 @@ class GeeExtractionClient(IExtractionClient):
         if self._initialized:
             return
         ee = self._ee or import_module("ee")
-        credentials = ee.ServiceAccountCredentials(
-            self._settings.gee_service_account,
-            self._settings.gee_private_key_file,
-        )
+        if self._settings.gee_private_key_json:
+            credentials = ee.ServiceAccountCredentials(
+                self._settings.gee_service_account,
+                key_data=self._settings.gee_private_key_json,
+            )
+        else:
+            credentials = ee.ServiceAccountCredentials(
+                self._settings.gee_service_account,
+                self._settings.gee_private_key_file,
+            )
         ee.Initialize(credentials, project=self._settings.gee_project)
         if hasattr(ee, "data") and hasattr(ee.data, "setDeadline"):
             ee.data.setDeadline(self._settings.gee_timeout_seconds * 1000)

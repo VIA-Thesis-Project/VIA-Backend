@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: via-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m alembic upgrade head && uvicorn via.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: via-postgres
+          property: connectionString
+      - key: GEE_ENABLED
+        value: "true"
+      - key: GEE_PROJECT
+        sync: false
+      - key: GEE_SERVICE_ACCOUNT
+        sync: false
+      - key: GEE_PRIVATE_KEY_JSON
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+
+databases:
+  - name: via-postgres
+    databaseName: via_production
+    user: via_user
+    plan: free
