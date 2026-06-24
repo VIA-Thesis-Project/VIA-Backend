@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -11,12 +12,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from via.bounded_contexts.document_management.interfaces.document_router import router as document_router
 from via.bounded_contexts.document_management.interfaces.document_router import get_current_user as get_document_current_user
-from via.bounded_contexts.iam.application.command_service import AuthenticateUserCommandService
+from via.bounded_contexts.iam.application.command_service import AuthenticateUserCommandService, RegisterUserCommandService
 from via.bounded_contexts.iam.domain.user import User
 from via.bounded_contexts.iam.infrastructure.jwt_adapter import InvalidTokenError, JWTTokenService
 from via.bounded_contexts.iam.infrastructure.password_hasher import BcryptPasswordHasher
 from via.bounded_contexts.iam.infrastructure.user_repository import SQLAlchemyAuthAuditRepository, SQLAlchemyUserRepository
-from via.bounded_contexts.iam.interfaces.auth_router import get_authentication_service
+from via.bounded_contexts.iam.interfaces.auth_router import get_authentication_service, get_register_service
 from via.bounded_contexts.iam.interfaces.auth_router import router as auth_router
 from via.bounded_contexts.parcel_management.application.command_service import ParcelCommandService
 from via.bounded_contexts.parcel_management.application.query_service import ParcelQueryService
@@ -50,7 +51,14 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     session_factory = get_session_factory()
-    app = FastAPI(title=settings.app_name)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.relay_worker.start()
+        yield
+        app.state.relay_worker.stop(timeout=10)
+
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.runtime = configure_application_runtime(session_factory=session_factory)
     app.state.event_bus = app.state.runtime.event_bus
     app.state.relay_worker = app.state.runtime.relay_worker
@@ -127,7 +135,22 @@ def _wire_iam_dependencies(
         finally:
             session.close()
 
+    def _iam_register_dep() -> Generator[RegisterUserCommandService, None, None]:
+        session = session_factory()
+        try:
+            yield RegisterUserCommandService(
+                user_repository=SQLAlchemyUserRepository(session),
+                password_hasher=hasher,
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     app.dependency_overrides[get_authentication_service] = _iam_auth_dep
+    app.dependency_overrides[get_register_service] = _iam_register_dep
     app.dependency_overrides[get_parcel_current_user] = _current_user_dep
     app.dependency_overrides[get_rulebook_current_user] = _current_user_dep
     app.dependency_overrides[get_document_current_user] = _current_user_dep

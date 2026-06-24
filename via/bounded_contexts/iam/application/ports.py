@@ -18,6 +18,9 @@ class IUserRepository(Protocol):
     def get_by_id(self, user_id: UUID) -> User | None:
         """Return a user by persistent identifier when present."""
 
+    def save(self, user: User) -> None:
+        """Persist a new user aggregate."""
+
 
 class IAuthAuditRepository(Protocol):
     """Persistence port for authentication audit rows."""
@@ -27,7 +30,10 @@ class IAuthAuditRepository(Protocol):
 
 
 class IPasswordHasher(Protocol):
-    """Password verification port implemented by secure infrastructure adapters."""
+    """Password hashing and verification port implemented by secure infrastructure adapters."""
+
+    def hash(self, plain_password: str) -> str:
+        """Return a secure hash of the plain password."""
 
     def verify(self, plain_password: str, hashed_password: str) -> bool:
         """Return whether a plain password matches a stored secure hash."""

@@ -25,7 +25,7 @@ from via.bounded_contexts.parcel_management.interfaces.resources import (
 
 
 router = APIRouter(prefix="/parcelas", tags=["parcelas"])
-ALLOWED_PARCEL_ROLES = {Role.ADMINISTRADOR, Role.ESPECIALISTA_TECNICO}
+ALLOWED_PARCEL_ROLES = {Role.ADMINISTRADOR, Role.USUARIO_AGRICOLA}
 
 
 def get_current_user() -> User:

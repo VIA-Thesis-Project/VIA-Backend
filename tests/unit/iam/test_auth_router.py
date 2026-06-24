@@ -59,9 +59,11 @@ def test_login_invalid_credentials_returns_generic_http_401() -> None:
     assert exc_info.value.detail == INVALID_CREDENTIALS_MESSAGE
 
 
-def test_router_exposes_only_public_login_endpoint() -> None:
-    matching_routes = [route for route in router.routes if getattr(route, "path", None) == "/auth/login"]
-
-    assert len(router.routes) == 1
-    assert len(matching_routes) == 1
-    assert matching_routes[0].methods == {"POST"}
+def test_router_exposes_public_auth_endpoints() -> None:
+    paths = {getattr(r, "path", None) for r in router.routes}
+    assert "/auth/login" in paths
+    assert "/auth/register" in paths
+    login_route = next(r for r in router.routes if getattr(r, "path", None) == "/auth/login")
+    register_route = next(r for r in router.routes if getattr(r, "path", None) == "/auth/register")
+    assert login_route.methods == {"POST"}
+    assert register_route.methods == {"POST"}
