@@ -104,14 +104,19 @@ class RulebookRepositoryLike(Protocol):
 
 
 def require_database_url() -> str:
-    """Return DATABASE_URL from the environment or exit with a clear error."""
+    """Return DATABASE_URL from the environment or exit with a clear error.
+
+    Auto-normalizes ``postgresql://`` (Render format) to ``postgresql+psycopg2://``.
+    """
 
     database_url = os.environ.get("DATABASE_URL", "").strip()
     if not database_url:
         print("ERROR: DATABASE_URL is required but not set.", file=sys.stderr)
         sys.exit(1)
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     if not database_url.startswith("postgresql+psycopg2://"):
-        print("ERROR: DATABASE_URL must use postgresql+psycopg2://", file=sys.stderr)
+        print("ERROR: DATABASE_URL must be a PostgreSQL connection string.", file=sys.stderr)
         sys.exit(1)
     return database_url
 

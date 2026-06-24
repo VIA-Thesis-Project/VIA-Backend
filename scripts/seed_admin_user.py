@@ -35,8 +35,10 @@ def main() -> None:
     email = _require_env("SEED_ADMIN_EMAIL")
     password = _require_env("SEED_ADMIN_PASSWORD")
 
+    if database_url.startswith("postgresql://"):
+        database_url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     if not database_url.startswith("postgresql+psycopg2://"):
-        print("ERROR: DATABASE_URL must use postgresql+psycopg2://", file=sys.stderr)
+        print("ERROR: DATABASE_URL must be a PostgreSQL connection string.", file=sys.stderr)
         sys.exit(1)
 
     name_hint = os.environ.get("SEED_ADMIN_NAME", "").strip()
