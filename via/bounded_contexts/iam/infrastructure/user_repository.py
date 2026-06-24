@@ -38,6 +38,18 @@ class SQLAlchemyUserRepository(IUserRepository):
             return None
         return _to_domain(model)
 
+    def save(self, user: User) -> None:
+        """Persist a new user aggregate without committing."""
+
+        self._session.add(
+            UserModel(
+                id=user.id,
+                email=user.email,
+                hashed_password=user.hashed_password,
+                role=user.role.value,
+            )
+        )
+
 
 class SQLAlchemyAuthAuditRepository(IAuthAuditRepository):
     """Record failed IAM authentication attempts."""

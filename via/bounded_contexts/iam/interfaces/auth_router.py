@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from via.bounded_contexts.iam.application.command_service import (
     INVALID_CREDENTIALS_MESSAGE,
     AuthenticateUserCommandService,
+    EmailAlreadyExistsError,
     InvalidCredentialsError,
+    RegisterUserCommandService,
 )
 
 
@@ -30,10 +34,47 @@ class TokenResponse(BaseModel):
     expires_in_seconds: int
 
 
+class RegisterRequest(BaseModel):
+    """Credentials submitted to IAM registration."""
+
+    email: str
+    password: str
+
+
+class RegisterResponse(BaseModel):
+    """User data returned after successful registration."""
+
+    user_id: UUID
+    email: str
+    role: str
+
+
 def get_authentication_service() -> AuthenticateUserCommandService:
     """Return the configured IAM authentication service dependency."""
 
     raise RuntimeError("IAM authentication service dependency is not configured")
+
+
+def get_register_service() -> RegisterUserCommandService:
+    """Return the configured IAM registration service dependency."""
+
+    raise RuntimeError("IAM registration service dependency is not configured")
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+def register(
+    body: RegisterRequest,
+    register_service: RegisterUserCommandService = Depends(get_register_service),
+) -> RegisterResponse:
+    """Register a new user with role USUARIO_AGRICOLA."""
+
+    try:
+        user = register_service.register(email=body.email, password=body.password)
+    except EmailAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return RegisterResponse(user_id=user.id, email=user.email, role=user.role.value)
 
 
 @router.post("/login", response_model=TokenResponse)
