@@ -17,6 +17,7 @@ $env:SEED_ADMIN_EMAIL     = "admin@via.local"
 $env:SEED_ADMIN_PASSWORD  = "Admin123456"
 $env:VIA_ADMIN_EMAIL      = "admin@via.local"
 $env:VIA_ADMIN_PASSWORD   = "Admin123456"
+$env:GEE_ENABLED          = "true"
 $env:GEE_PROJECT          = "via-tp"
 $env:GEE_SERVICE_ACCOUNT  = "via-gee-extractor@via-tp.iam.gserviceaccount.com"
 $env:GEE_PRIVATE_KEY_FILE = $GeeKeyFile

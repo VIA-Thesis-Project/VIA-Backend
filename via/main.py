@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -50,7 +51,14 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     session_factory = get_session_factory()
-    app = FastAPI(title=settings.app_name)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.relay_worker.start()
+        yield
+        app.state.relay_worker.stop(timeout=10)
+
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.runtime = configure_application_runtime(session_factory=session_factory)
     app.state.event_bus = app.state.runtime.event_bus
     app.state.relay_worker = app.state.runtime.relay_worker

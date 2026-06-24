@@ -1,0 +1,337 @@
+{
+  "info": {
+    "name": "VIA Backend",
+    "_postman_id": "via-backend-collection-v1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000" },
+    { "key": "token", "value": "" },
+    { "key": "user_id", "value": "" },
+    { "key": "parcel_id", "value": "" },
+    { "key": "rulebook_id", "value": "" },
+    { "key": "document_id", "value": "" },
+    { "key": "evaluation_id", "value": "" },
+    { "key": "recommendation_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Ops",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/register", "host": ["{{base_url}}"], "path": ["auth", "register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"usuario@via.local\",\n  \"password\": \"Test1234!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "    pm.collectionVariables.set('token', json.access_token);",
+                  "    const payload = JSON.parse(atob(json.access_token.split('.')[1]));",
+                  "    pm.collectionVariables.set('user_id', payload.sub);",
+                  "    console.log('Token y user_id guardados automaticamente');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@via.local\",\n  \"password\": \"Admin123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Parcelas",
+      "item": [
+        {
+          "name": "Listar Parcelas",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/parcelas", "host": ["{{base_url}}"], "path": ["parcelas"] }
+          }
+        },
+        {
+          "name": "Crear Parcela",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('parcel_id', json.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/parcelas", "host": ["{{base_url}}"], "path": ["parcelas"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [-76.9500, -12.0500],\n        [-76.9000, -12.0500],\n        [-76.9000, -12.0000],\n        [-76.9500, -12.0000],\n        [-76.9500, -12.0500]\n      ]\n    ]\n  },\n  \"metadata\": {\n    \"name\": \"Parcela Demo\",\n    \"description\": \"Parcela de prueba\",\n    \"crs\": \"EPSG:4326\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Ver Parcela",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/parcelas/{{parcel_id}}", "host": ["{{base_url}}"], "path": ["parcelas", "{{parcel_id}}"] }
+          }
+        },
+        {
+          "name": "Actualizar Parcela",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/parcelas/{{parcel_id}}", "host": ["{{base_url}}"], "path": ["parcelas", "{{parcel_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [-76.9600, -12.0600],\n        [-76.8900, -12.0600],\n        [-76.8900, -11.9900],\n        [-76.9600, -11.9900],\n        [-76.9600, -12.0600]\n      ]\n    ]\n  },\n  \"metadata\": {\n    \"name\": \"Parcela Demo Actualizada\",\n    \"description\": \"Descripción actualizada\",\n    \"crs\": \"EPSG:4326\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rulebooks",
+      "item": [
+        {
+          "name": "Listar Rulebooks",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/rulebooks", "host": ["{{base_url}}"], "path": ["rulebooks"] }
+          }
+        },
+        {
+          "name": "Crear Rulebook",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('rulebook_id', json.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/rulebooks", "host": ["{{base_url}}"], "path": ["rulebooks"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"crop_id\": \"demo_papa\",\n  \"criteria\": [\n    {\n      \"id\": \"temperatura\",\n      \"name\": \"Temperatura\",\n      \"ahp_weight\": 0.4,\n      \"is_critical\": false,\n      \"critical_policy\": null\n    }\n  ],\n  \"phases\": [\n    {\n      \"id\": \"establecimiento\",\n      \"name\": \"Establecimiento\",\n      \"sequence_order\": 1,\n      \"duration_days\": 30,\n      \"ahp_weight\": 1.0\n    }\n  ],\n  \"phase_requirements\": [\n    {\n      \"criterion_id\": \"temperatura\",\n      \"phase_id\": \"establecimiento\",\n      \"membership_function\": {\n        \"a\": 8.0, \"b\": 12.0, \"c\": 22.0, \"d\": 26.0\n      },\n      \"temporal_periods\": [\n        { \"period_id\": \"p1\", \"start_month\": 1, \"end_month\": 3, \"weight\": 1.0 }\n      ],\n      \"extraction_binding\": {\n        \"variable_name\": \"temperatura_media_mensual_c\",\n        \"dataset_key\": \"ECMWF/ERA5_LAND/MONTHLY_AGGR\",\n        \"band\": \"temperature_2m\",\n        \"reducer\": \"mean\",\n        \"fallback_allowed\": true\n      }\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Publicar Rulebook",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/rulebooks/{{rulebook_id}}/publish", "host": ["{{base_url}}"], "path": ["rulebooks", "{{rulebook_id}}", "publish"] }
+          }
+        },
+        {
+          "name": "Rulebook Activo por Cultivo",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/rulebooks/demo_papa/active", "host": ["{{base_url}}"], "path": ["rulebooks", "demo_papa", "active"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documentos",
+      "item": [
+        {
+          "name": "Registrar Documento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('document_id', json.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/documentos", "host": ["{{base_url}}"], "path": ["documentos"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Manual Tecnico Papa\",\n  \"format\": \"PDF\",\n  \"crop_tags\": [\"demo_papa\"],\n  \"size_bytes\": 204800,\n  \"fragments\": [\n    {\n      \"text\": \"La papa requiere temperaturas entre 10 y 24 grados Celsius para un desarrollo optimo.\",\n      \"page_ref\": 12,\n      \"crop_tags\": [\"demo_papa\"],\n      \"token_count\": 20\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Buscar Fragmentos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/documentos/fragmentos/buscar?crop_id=demo_papa&q=temperatura",
+              "host": ["{{base_url}}"],
+              "path": ["documentos", "fragmentos", "buscar"],
+              "query": [
+                { "key": "crop_id", "value": "demo_papa" },
+                { "key": "q", "value": "temperatura" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ver Documento",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/documentos/{{document_id}}", "host": ["{{base_url}}"], "path": ["documentos", "{{document_id}}"] }
+          }
+        },
+        {
+          "name": "Fragmentos de Documento",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/documentos/{{document_id}}/fragmentos", "host": ["{{base_url}}"], "path": ["documentos", "{{document_id}}", "fragmentos"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Evaluaciones",
+      "item": [
+        {
+          "name": "Iniciar Evaluacion",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.evaluation_id) { pm.collectionVariables.set('evaluation_id', json.evaluation_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/evaluaciones", "host": ["{{base_url}}"], "path": ["evaluaciones"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parcel_id\": \"{{parcel_id}}\",\n  \"requested_by\": \"{{user_id}}\",\n  \"crop_candidates\": [\"demo_papa\", \"demo_maiz\"],\n  \"temporal_window\": {\n    \"start\": \"2024-06-01\",\n    \"end\": \"2025-06-01\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Estado de Evaluacion",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/evaluaciones/{{evaluation_id}}/estado", "host": ["{{base_url}}"], "path": ["evaluaciones", "{{evaluation_id}}", "estado"] }
+          }
+        },
+        {
+          "name": "Resultado MCDA",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/evaluaciones/{{evaluation_id}}/resultado-mcda", "host": ["{{base_url}}"], "path": ["evaluaciones", "{{evaluation_id}}", "resultado-mcda"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recomendaciones",
+      "item": [
+        {
+          "name": "Recomendaciones de Evaluacion",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (Array.isArray(json) && json[0]?.id) {",
+                  "    pm.collectionVariables.set('recommendation_id', json[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/evaluaciones/{{evaluation_id}}/recomendaciones", "host": ["{{base_url}}"], "path": ["evaluaciones", "{{evaluation_id}}", "recomendaciones"] }
+          }
+        },
+        {
+          "name": "Recomendacion Final",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/evaluaciones/{{evaluation_id}}/recomendacion-final", "host": ["{{base_url}}"], "path": ["evaluaciones", "{{evaluation_id}}", "recomendacion-final"] }
+          }
+        },
+        {
+          "name": "Ver Recomendacion",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/recomendaciones/{{recommendation_id}}", "host": ["{{base_url}}"], "path": ["recomendaciones", "{{recommendation_id}}"] }
+          }
+        }
+      ]
+    }
+  ]
+}

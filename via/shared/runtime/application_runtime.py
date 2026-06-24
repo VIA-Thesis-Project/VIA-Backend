@@ -93,7 +93,7 @@ def configure_application_runtime(
         drafting_provider,
         provider_name=resolved_settings.llm_drafting_provider,
     )
-    resolved_extraction_consumer = extraction_consumer or _extraction_consumer(resolved_session_factory)
+    resolved_extraction_consumer = extraction_consumer or _extraction_consumer(resolved_session_factory, resolved_settings)
     resolved_evaluation_consumer = evaluation_consumer or _evaluation_consumer(
         resolved_session_factory,
         resolved_settings,
@@ -179,17 +179,18 @@ def build_recommendation_consumer(
 _recommendation_consumer = build_recommendation_consumer
 
 
-def _extraction_consumer(session_factory: sessionmaker[Session]) -> AgroenvExtractionConsumer:
-    """Build the extraction consumer with real ACL and repository adapters.
+def _extraction_consumer(session_factory: sessionmaker[Session], settings: Settings) -> AgroenvExtractionConsumer:
+    """Build the extraction consumer, using the real GEE client when GEE is enabled."""
 
-    Limitation: RuntimeGeeExtractionClient raises RuntimeError when extraction
-    is attempted — GEE credentials are not available in this runtime. Replace
-    with a real GEE client when credentials and extraction infra are configured.
-    """
+    if settings.gee_enabled:
+        from via.bounded_contexts.agroenv_extraction.infrastructure.gee_client import GeeExtractionClient
+        extraction_client: IExtractionClient = GeeExtractionClient(settings=settings)
+    else:
+        extraction_client = RuntimeGeeExtractionClient()
 
     service = AgroenvExtractionCommandService(
         session_factory=session_factory,
-        extraction_client=RuntimeGeeExtractionClient(),
+        extraction_client=extraction_client,
         acl=ExtractionAcl(),
         repository_factory=lambda session: SqlAlchemyExtractionRepository(session),
     )
