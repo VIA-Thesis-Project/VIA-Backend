@@ -29,6 +29,7 @@ from via.bounded_contexts.recommendation.application.ports import (
 )
 from via.bounded_contexts.rulebook_management.application.query_service import RulebookQueryService
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
+from via.bounded_contexts.rulebook_management.domain.phase_requirement import PhaseRequirement
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 from via.bounded_contexts.viability_evaluation.application.ports import (
     AgroenvVariableData,
@@ -202,9 +203,16 @@ class SqlAlchemyEvaluationResultsBridge:
         try:
             repo = EvaluationQueryRepository(session)
             crop_results = repo.find_crop_results(evaluation_id)
+            rulebook_metadata = _load_rulebook_metadata(session, [r.crop_id for r in crop_results])
             return EvaluationRecommendationData(
                 evaluation_id=evaluation_id,
-                crop_results=[_crop_result_to_recommendation_data(r) for r in crop_results],
+                crop_results=[
+                    _crop_result_to_recommendation_data(
+                        r,
+                        rulebook_metadata.get(r.crop_id, {}),
+                    )
+                    for r in crop_results
+                ],
             )
         finally:
             session.close()
@@ -245,9 +253,13 @@ def _rulebook_to_evaluation_data(rulebook: Rulebook) -> RulebookEvaluationData:
     )
 
 
-def _crop_result_to_recommendation_data(result: Any) -> CropEvaluationResultData:
+def _crop_result_to_recommendation_data(
+    result: Any,
+    metadata_by_pair: dict[tuple[str, str], dict[str, str]] | None = None,
+) -> CropEvaluationResultData:
     """Map a CropResultReadModel to a CropEvaluationResultData for recommendation drafting."""
 
+    metadata_by_pair = metadata_by_pair or {}
     return CropEvaluationResultData(
         crop_id=result.crop_id,
         score=result.score,
@@ -262,6 +274,7 @@ def _crop_result_to_recommendation_data(result: Any) -> CropEvaluationResultData
                 observed_value=g.observed_value,
                 optimal_limit=g.optimal_limit,
                 gap_value=g.gap_value,
+                **_gap_metadata(metadata_by_pair, g.criterion_id, g.phase_id, g.gap_value),
             )
             for g in result.gaps
         ],
@@ -275,7 +288,114 @@ def _crop_result_to_recommendation_data(result: Any) -> CropEvaluationResultData
                 optimal_limit=lf.optimal_limit,
                 membership=lf.membership,
                 doc_source=lf.doc_source,
+                **_gap_metadata(metadata_by_pair, lf.criterion_id, lf.phase_id, lf.observed_value - lf.optimal_limit),
             )
             for lf in result.limiting_factors
         ],
     )
+
+
+def _load_rulebook_metadata(
+    session: Session,
+    crop_ids: list[str],
+) -> dict[str, dict[tuple[str, str], dict[str, str]]]:
+    metadata: dict[str, dict[tuple[str, str], dict[str, str]]] = {}
+    repo = SqlAlchemyRulebookRepository(session)
+    for crop_id in dict.fromkeys(crop_ids):
+        rulebook = repo.get_active_by_crop(crop_id)
+        if rulebook is None:
+            metadata[crop_id] = {}
+            continue
+        metadata[crop_id] = _rulebook_recommendation_metadata(rulebook)
+    return metadata
+
+
+def _rulebook_recommendation_metadata(rulebook: Rulebook) -> dict[tuple[str, str], dict[str, str]]:
+    criteria_by_id = {str(c.id): c for c in rulebook.criteria}
+    phases_by_id = {str(p.id): p for p in rulebook.phases}
+    metadata: dict[tuple[str, str], dict[str, str]] = {}
+    for requirement in rulebook.phase_requirements:
+        criterion_id = str(requirement.criterion_id)
+        phase_id = str(requirement.phase_id)
+        criterion = criteria_by_id.get(criterion_id)
+        phase = phases_by_id.get(phase_id)
+        if criterion is None or phase is None:
+            continue
+        metadata[(criterion_id, phase_id)] = {
+            "criterion_name": criterion.name,
+            "criterion_label": _humanize_label(criterion.name),
+            "criterion_group": _criterion_group(requirement),
+            "unit": requirement.extraction_binding.unit,
+            "phase_name": phase.name,
+            "recommendation_topic": _recommendation_topic(criterion.name, phase.name, requirement),
+        }
+    return metadata
+
+
+def _gap_metadata(
+    metadata_by_pair: dict[tuple[str, str], dict[str, str]],
+    criterion_id: str,
+    phase_id: str,
+    gap_value: float,
+) -> dict[str, str]:
+    metadata = dict(metadata_by_pair.get((criterion_id, phase_id), {}))
+    metadata["gap_direction"] = _gap_direction(gap_value)
+    metadata["severity"] = _gap_severity(gap_value)
+    return metadata
+
+
+def _humanize_label(value: str) -> str:
+    return value.replace("_", " ").strip().capitalize()
+
+
+def _criterion_group(requirement: PhaseRequirement) -> str:
+    source = " ".join(
+        [
+            requirement.extraction_binding.variable_name,
+            requirement.extraction_binding.dataset_key,
+            requirement.extraction_binding.band,
+            requirement.extraction_binding.unit,
+        ]
+    ).lower()
+    if any(term in source for term in ("temp", "precip", "rain", "clima", "chirps", "era5")):
+        return "clima"
+    if any(term in source for term in ("soil", "ph", "arcilla", "arena", "carbon", "suelo")):
+        return "suelo"
+    if any(term in source for term in ("elevation", "altitud", "slope", "pendiente", "dem")):
+        return "topografia"
+    if any(term in source for term in ("ndvi", "evi", "savi", "veget")):
+        return "vegetacion"
+    return "agroambiental"
+
+
+def _recommendation_topic(
+    criterion_name: str,
+    phase_name: str,
+    requirement: PhaseRequirement,
+) -> str:
+    tokens = [
+        criterion_name,
+        phase_name,
+        requirement.extraction_binding.variable_name,
+        requirement.extraction_binding.unit,
+    ]
+    return " ".join(token for token in tokens if token).replace("_", " ").strip()
+
+
+def _gap_direction(gap_value: float) -> str:
+    if gap_value < 0:
+        return "below_optimum"
+    if gap_value > 0:
+        return "above_optimum"
+    return "at_optimum"
+
+
+def _gap_severity(gap_value: float) -> str:
+    magnitude = abs(float(gap_value))
+    if magnitude == 0:
+        return "sin_brecha"
+    if magnitude < 1:
+        return "baja"
+    if magnitude < 10:
+        return "media"
+    return "alta"

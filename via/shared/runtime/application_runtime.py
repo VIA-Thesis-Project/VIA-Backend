@@ -240,6 +240,22 @@ def build_recommendation_drafting_provider(settings: Settings) -> IRecommendatio
                 max_output_tokens=settings.gemini_api_max_output_tokens,
             )
         )
+    if settings.llm_drafting_provider == "openai_file_search":
+        from via.bounded_contexts.recommendation.infrastructure.openai_file_search_provider import (
+            OpenAIFileSearchConfig,
+            OpenAIFileSearchDraftingProvider,
+        )
+
+        return OpenAIFileSearchDraftingProvider(
+            OpenAIFileSearchConfig(
+                api_key=str(settings.openai_api_key),
+                model=str(settings.openai_rag_model),
+                max_num_results=settings.openai_file_search_max_results,
+                prompt_version=settings.openai_file_search_prompt_version,
+                timeout_seconds=settings.llm_timeout_seconds,
+                vector_store_map=_build_vector_store_map(settings),
+            )
+        )
     return LocalHttpLlmDraftingProvider(
         LocalHttpLlmConfig(
             endpoint=str(settings.llm_local_http_endpoint),
@@ -248,3 +264,15 @@ def build_recommendation_drafting_provider(settings: Settings) -> IRecommendatio
             max_prompt_chars=settings.llm_max_prompt_chars,
         )
     )
+
+
+def _build_vector_store_map(settings: Settings) -> dict[str, str]:
+    """Build crop_id -> vector_store_id map from validated settings."""
+    candidates: dict[str, str | None] = {
+        "maiz_amarillo_duro": settings.openai_vector_store_maiz_amarillo_duro_id,
+        "palta_hass": settings.openai_vector_store_palta_hass_id,
+        "mandarina_murcott": settings.openai_vector_store_mandarina_murcott_id,
+        "maracuya_criolla_amarilla": settings.openai_vector_store_maracuya_criolla_amarilla_id,
+        "uva_de_mesa_sweet_globe": settings.openai_vector_store_uva_de_mesa_sweet_globe_id,
+    }
+    return {crop_id: vs_id for crop_id, vs_id in candidates.items() if vs_id}

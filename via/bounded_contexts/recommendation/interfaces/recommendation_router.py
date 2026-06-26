@@ -98,8 +98,29 @@ def _to_response(rm) -> RecommendationResponse:
         crop_id=rm.crop_id,
         status=rm.status,
         title=rm.title,
-        sections=[],
-        evidence=[EvidenceResponse(fragment_id=fid) for fid in rm.fragment_ids],
+        sections=[
+            SectionResponse(
+                section_type="recommendation_text",
+                title=rm.title,
+                content=rm.text,
+            )
+        ],
+        evidence=[_evidence_to_response(item) for item in rm.evidence],
+        structured_output=rm.structured_output,
+        gap_recommendations=list((rm.structured_output or {}).get("gap_recommendations") or []),
         created_at=rm.created_at,
         provider=rm.provider,
+    )
+
+
+def _evidence_to_response(item) -> EvidenceResponse:
+    return EvidenceResponse(
+        fragment_id=item.fragment_id,
+        document_id=item.document_id,
+        text=item.text,
+        crop_tags=item.crop_tags,
+        page_ref=item.page_ref,
+        score=item.score,
+        source_filename=item.source_filename,
+        source_file_id=item.source_file_id,
     )

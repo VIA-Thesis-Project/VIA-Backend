@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from via.bounded_contexts.recommendation.application.ports import (
+    EvidenceReadModel,
     FinalRecommendationResult,
     RecommendationReadModel,
 )
@@ -84,7 +85,24 @@ class RecommendationQueryRepository:
             crop_id=row.crop_id,
             status="GENERATED",
             title=f"Recomendación para {row.crop_id}",
-            fragment_ids=[UUID(fid) for fid in (row.fragment_ids or [])],
+            text=row.text,
+            evidence=[_evidence_from_json(item) for item in (row.fragment_ids or [])],
+            structured_output=row.structured_output or {},
             created_at=row.generated_at,
             provider=row.provider,
         )
+
+
+def _evidence_from_json(item) -> EvidenceReadModel:
+    if isinstance(item, dict):
+        return EvidenceReadModel(
+            fragment_id=UUID(str(item["fragment_id"])),
+            document_id=UUID(str(item["document_id"])) if item.get("document_id") else None,
+            text=item.get("text"),
+            crop_tags=list(item.get("crop_tags") or []),
+            page_ref=item.get("page_ref"),
+            score=item.get("score"),
+            source_filename=item.get("source_filename"),
+            source_file_id=item.get("source_file_id"),
+        )
+    return EvidenceReadModel(fragment_id=UUID(str(item)))

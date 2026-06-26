@@ -314,6 +314,7 @@ def test_artifact_names_has_all_expected_keys() -> None:
         "outbox_timeline", "saga_timeline", "agroenv_vector", "agroenv_entries",
         "mcda_results", "criterion_details", "final_api",
         "recommendation_summary", "recommendation_sections",
+        "openai_file_search_trace",
         "report",
     }
     assert set(_mod.ARTIFACT_NAMES.keys()) == expected_keys

@@ -10,6 +10,17 @@ param(
     [switch]$NoServer
 )
 
+# ── .env (optional overrides — loaded before hardcoded defaults) ──────────────
+$envFile = Join-Path (Join-Path $PSScriptRoot "..") ".env"
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        if ($_ -match "^\s*([^#\s][^=]*?)\s*=\s*(.*?)\s*$") {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    Write-Host "      Loaded .env" -ForegroundColor Gray
+}
+
 # ── Environment variables ─────────────────────────────────────────────────────
 $env:DATABASE_URL         = "postgresql+psycopg2://via_user:via_password@localhost:5433/via_test"
 $env:JWT_SECRET_KEY       = "dev-only-secret-key-must-be-32chars!"
@@ -38,7 +49,7 @@ if (-not $?) { Write-Host "ERROR: alembic fallo" -ForegroundColor Red; exit 1 }
 # ── Seed ──────────────────────────────────────────────────────────────────────
 Write-Host "`n[3/4] Cargando datos iniciales..." -ForegroundColor Cyan
 python scripts/seed_admin_user.py
-python scripts/seed_potential_viability_rulebooks.py
+python scripts/seed_prod_rulebooks.py
 
 # ── Server ────────────────────────────────────────────────────────────────────
 if ($NoServer) {

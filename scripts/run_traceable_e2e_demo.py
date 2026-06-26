@@ -94,6 +94,7 @@ ARTIFACT_NAMES = {
     "final_api": "14_final_api_result.json",
     "recommendation_summary": "15_recommendation_summary.json",
     "recommendation_sections": "16_recommendation_sections.json",
+    "openai_file_search_trace": "17_openai_file_search_trace.json",
     "report": "trace_report.md",
 }
 
@@ -419,6 +420,23 @@ def get_mcda_result(base_url: str, token: str, evaluation_id: str) -> dict:
     if status != 200:
         print(f"AVISO: GET resultado-mcda retorno HTTP {status}")
     return body
+
+
+# ─── OpenAI File Search helpers ───────────────────────────────────────────────
+
+
+def _extract_openai_file_search_trace(drafting_provider: Any) -> dict | None:
+    """Extract trace from an OpenAIFileSearchDraftingProvider if available."""
+    get_trace = getattr(drafting_provider, "get_last_trace", None)
+    if get_trace is None:
+        return None
+    trace = get_trace()
+    if trace is None:
+        return None
+    to_dict = getattr(trace, "to_dict", None)
+    if to_dict is not None:
+        return to_dict()
+    return dict(vars(trace))
 
 
 # ─── DB query helpers ─────────────────────────────────────────────────────────
@@ -1042,6 +1060,60 @@ def generate_trace_report(artifacts_dir: pathlib.Path, ctx: dict) -> None:
 
     lines += ["## 17. Respuesta Final de la API", "```json", safe_json_dump(final), "```", ""]
 
+    ofs_trace = ctx.get("openai_file_search_trace")
+    lines += ["## 17. OpenAI File Search - Trazabilidad"]
+    if ofs_trace:
+        lines += [
+            f"- provider:              `openai_file_search`",
+            f"- model:                 `{ofs_trace.get('model','?')}`",
+            f"- prompt_version:        `{ofs_trace.get('prompt_version','?')}`",
+            f"- vector_store_id:       `{ofs_trace.get('vector_store_id','?')}`",
+            f"- response_id:           `{ofs_trace.get('response_id','?')}`",
+            f"- file_search_call_id:   `{ofs_trace.get('file_search_call_id','?')}`",
+            f"- validation_status:     `{ofs_trace.get('raw_output_validation_status','?')}`",
+            "",
+        ]
+        source_filenames = ofs_trace.get("source_filenames") or []
+        if source_filenames:
+            lines.append("**Documentos recuperados:**")
+            for fn in source_filenames:
+                lines.append(f"- `{fn}`")
+            lines.append("")
+        else:
+            lines.append(
+                "> AVISO: File Search no recuperó documentos. La recomendación declara evidencia insuficiente."
+            )
+            lines.append("")
+
+        retrieved = ofs_trace.get("retrieved_results") or []
+        if retrieved:
+            lines += [
+                "| filename | score | file_id |",
+                "|----------|-------|---------|",
+            ]
+            for r in retrieved:
+                lines.append(
+                    f"| {r.get('filename','?')} | {r.get('score','?')} | {r.get('file_id','?')} |"
+                )
+            lines.append("")
+
+        warnings = ofs_trace.get("warnings") or []
+        if warnings:
+            for w in warnings:
+                lines.append(f"> AVISO: {w}")
+            lines.append("")
+
+        lines.append(
+            "> NOTA: El LLM no recalculó scores, pesos, membresías, rankings ni categorías MCDA."
+        )
+        lines.append("")
+    else:
+        lines += [
+            "_Trazabilidad de File Search no disponible "
+            "(provider distinto de openai_file_search o --until-recommendation-completed no especificado)._",
+            "",
+        ]
+
     rec = ctx.get("recommendation")
     lines += ["## 18. Recomendacion Generada"]
     if rec:
@@ -1269,6 +1341,10 @@ def main(argv: list[str] | None = None) -> None:
 
         rec_data = query_recommendation(session_factory, eval_uuid)
 
+        openai_trace: dict | None = None
+        if until_rec and rec_consumer is not None:
+            openai_trace = _extract_openai_file_search_trace(drafting_provider)
+
         rec_summary: dict = {}
         rec_sections: list[dict] = []
         if rec_data:
@@ -1299,6 +1375,8 @@ def main(argv: list[str] | None = None) -> None:
         write_artifact(artifacts_dir, ARTIFACT_NAMES["final_api"], final_api)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["recommendation_summary"], rec_summary)
         write_artifact(artifacts_dir, ARTIFACT_NAMES["recommendation_sections"], rec_sections)
+        if openai_trace:
+            write_artifact(artifacts_dir, ARTIFACT_NAMES["openai_file_search_trace"], openai_trace)
 
         context = {
             "geojson_file": args.geojson_file,
@@ -1320,6 +1398,7 @@ def main(argv: list[str] | None = None) -> None:
             "final_api_result": final_api,
             "final_status": final_status,
             "recommendation": rec_data,
+            "openai_file_search_trace": openai_trace,
         }
         generate_trace_report(artifacts_dir, context)
         _print_summary(parcel_id, evaluation_id, artifacts_dir, final_api, saga_timeline, allow_failed=args.allow_failed)

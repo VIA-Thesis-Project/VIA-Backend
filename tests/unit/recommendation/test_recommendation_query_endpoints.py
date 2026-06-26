@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from via.bounded_contexts.recommendation.application.ports import (
+    EvidenceReadModel,
     FinalRecommendationResult,
     RecommendationReadModel,
 )
@@ -79,7 +80,9 @@ def _rm(
     evaluation_id: UUID = _EID,
     parcel_id: UUID | None = _PID,
     crop_id: str = "cacao",
+    text: str = "Recomendacion tecnica sustentada para cacao.",
     fragment_ids: list[UUID] | None = None,
+    structured_output: dict | None = None,
 ) -> RecommendationReadModel:
     return RecommendationReadModel(
         recommendation_id=recommendation_id,
@@ -88,9 +91,11 @@ def _rm(
         crop_id=crop_id,
         status="GENERATED",
         title=f"Recomendación para {crop_id}",
-        fragment_ids=fragment_ids or [_FID],
+        text=text,
+        evidence=[EvidenceReadModel(fragment_id=fid) for fid in (fragment_ids or [_FID])],
         created_at=_NOW,
         provider="template",
+        structured_output=structured_output or {},
     )
 
 
@@ -132,10 +137,26 @@ def test_get_recommendation_returns_evidence_fragment_ids() -> None:
     assert resp.evidence[0].fragment_id == _FID
 
 
-def test_get_recommendation_returns_empty_sections() -> None:
-    svc = FakeRecommendationQueryService(recommendation=_rm())
+def test_get_recommendation_returns_text_section() -> None:
+    svc = FakeRecommendationQueryService(recommendation=_rm(text="Texto generado por OpenAI File Search."))
     resp = get_recommendation(_RID, svc)
-    assert resp.sections == []
+    assert len(resp.sections) == 1
+    assert resp.sections[0].section_type == "recommendation_text"
+    assert resp.sections[0].content == "Texto generado por OpenAI File Search."
+
+
+def test_get_recommendation_returns_gap_recommendations_from_structured_output() -> None:
+    structured_output = {
+        "schema_version": "recommendation_structured_v1",
+        "summary": "Resumen",
+        "gap_recommendations": [{"gap_key": "agua|floracion", "recommendation": "Riego"}],
+    }
+    svc = FakeRecommendationQueryService(
+        recommendation=_rm(text="Texto.", structured_output=structured_output)
+    )
+    resp = get_recommendation(_RID, svc)
+    assert resp.structured_output == structured_output
+    assert resp.gap_recommendations == structured_output["gap_recommendations"]
 
 
 def test_get_recommendation_returns_derived_title() -> None:

@@ -20,6 +20,14 @@ class GapData:
     observed_value: float
     optimal_limit: float
     gap_value: float
+    criterion_name: str | None = None
+    criterion_label: str | None = None
+    criterion_group: str | None = None
+    unit: str | None = None
+    phase_name: str | None = None
+    gap_direction: str | None = None
+    severity: str | None = None
+    recommendation_topic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,14 @@ class LimitingFactorData:
     optimal_limit: float
     membership: float
     doc_source: str | None = None
+    criterion_name: str | None = None
+    criterion_label: str | None = None
+    criterion_group: str | None = None
+    unit: str | None = None
+    phase_name: str | None = None
+    gap_direction: str | None = None
+    severity: str | None = None
+    recommendation_topic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +83,22 @@ class EvidenceData:
     crop_tags: list[str]
     page_ref: int | None = None
     score: float | None = None
+    source_filename: str | None = None
+    source_file_id: str | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceReadModel:
+    """Persisted evidence data referenced by a recommendation response."""
+
+    fragment_id: UUID
+    document_id: UUID | None = None
+    text: str | None = None
+    crop_tags: list[str] = field(default_factory=list)
+    page_ref: int | None = None
+    score: float | None = None
+    source_filename: str | None = None
+    source_file_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,9 +151,11 @@ class RecommendationReadModel:
     crop_id: str
     status: str
     title: str
-    fragment_ids: list[UUID]
+    text: str
+    evidence: list[EvidenceReadModel]
     created_at: datetime
     provider: str
+    structured_output: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
