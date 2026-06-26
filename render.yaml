@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m alembic upgrade head && PYTHONPATH=. python scripts/seed_admin_user.py && PYTHONPATH=. python scripts/seed_potential_viability_rulebooks.py && uvicorn via.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m alembic upgrade head && PYTHONPATH=. python scripts/seed_admin_user.py && PYTHONPATH=. python scripts/seed_prod_rulebooks.py && uvicorn via.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -24,6 +24,26 @@ services:
       - key: SEED_ADMIN_EMAIL
         sync: false
       - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: LLM_DRAFTING_PROVIDER
+        value: "openai_file_search"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_RAG_MODEL
+        value: "gpt-4o-mini"
+      - key: OPENAI_FILE_SEARCH_MAX_RESULTS
+        value: "15"
+      - key: OPENAI_FILE_SEARCH_PROMPT_VERSION
+        value: "v2"
+      - key: VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID
+        sync: false
+      - key: VIA_VECTOR_STORE_PALTA_HASS_ID
+        sync: false
+      - key: VIA_VECTOR_STORE_MANDARINA_MURCOTT_ID
+        sync: false
+      - key: VIA_VECTOR_STORE_MARACUYA_CRIOLLA_AMARILLA_ID
+        sync: false
+      - key: VIA_VECTOR_STORE_UVA_DE_MESA_SWEET_GLOBE_ID
         sync: false
 
 databases:
