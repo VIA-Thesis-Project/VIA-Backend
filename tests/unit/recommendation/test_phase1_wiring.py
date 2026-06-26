@@ -35,6 +35,7 @@ from via.bounded_contexts.recommendation.application.command_service import (
 )
 from via.bounded_contexts.recommendation.application.ports import (
     CropEvaluationResultData,
+    EvidenceReadModel,
     EvaluationRecommendationData,
     FinalRecommendationResult,
     GapData,
@@ -615,7 +616,8 @@ def _read_model(
         crop_id="maiz",
         status="GENERATED",
         title="Recomendación para maiz",
-        fragment_ids=[],
+        text="Recomendacion tecnica sustentada para maiz.",
+        evidence=[],
         created_at=_NOW,
         provider="template",
     )

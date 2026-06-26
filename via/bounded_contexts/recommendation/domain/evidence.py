@@ -18,6 +18,8 @@ class DocumentaryEvidence:
     crop_tags: list[str]
     page_ref: int | None = None
     score: float | None = None
+    source_filename: str | None = None
+    source_file_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate evidence traceability."""

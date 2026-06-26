@@ -141,6 +141,81 @@ def test_pure_engine_generates_real_excess_gap_with_derived_upper_optimal_limit(
     assert gap.gap_value == 5.0
 
 
+def test_pure_engine_reports_one_gap_for_site_static_criterion_repeated_by_phase() -> None:
+    rulebook = RulebookEvaluationData(
+        crop_id="cacao",
+        rulebook_id=uuid4(),
+        version=2,
+        criteria=[
+            EvaluationCriterionSpec(
+                criterion_id="contenido_arcilla",
+                crop_id="cacao",
+                phase_id="germinacion",
+                variable_name="arcilla_pct",
+                w_ahp=1.0,
+                phase_weight=0.5,
+                temporal_periods=[{"period_key": "germinacion", "temporal_weight": 1.0}],
+                membership_fn={"type": "TRAPEZOIDAL", "a": 0.0, "b": 20.0, "c": 40.0, "d": 60.0},
+                critical_policy="NONE",
+                penalty_factor=None,
+                doc_source="manual",
+            ),
+            EvaluationCriterionSpec(
+                criterion_id="contenido_arcilla",
+                crop_id="cacao",
+                phase_id="floracion",
+                variable_name="arcilla_pct",
+                w_ahp=1.0,
+                phase_weight=0.5,
+                temporal_periods=[{"period_key": "floracion", "temporal_weight": 1.0}],
+                membership_fn={"type": "TRAPEZOIDAL", "a": 0.0, "b": 20.0, "c": 40.0, "d": 60.0},
+                critical_policy="NONE",
+                penalty_factor=None,
+                doc_source="manual",
+            ),
+        ],
+    )
+    vector = AgroenvVectorData(
+        evaluation_id=UUID(_EVALUATION_ID),
+        parcel_id=uuid4(),
+        variables=[
+            AgroenvVariableData(
+                variable_name="arcilla_pct",
+                criterion_id="contenido_arcilla",
+                crop_id="cacao",
+                phase_id="germinacion",
+                period_key="germinacion",
+                value=5.0,
+                unit="pct",
+                status="OK",
+                dataset_key="soil",
+                band="clay",
+                source="stub",
+            ),
+            AgroenvVariableData(
+                variable_name="arcilla_pct",
+                criterion_id="contenido_arcilla",
+                crop_id="cacao",
+                phase_id="floracion",
+                period_key="floracion",
+                value=10.0,
+                unit="pct",
+                status="OK",
+                dataset_key="soil",
+                band="clay",
+                source="stub",
+            ),
+        ],
+    )
+
+    evaluation = PureMcdaEvaluationEngine().evaluate(_command(), vector, [rulebook], _settings())
+    result = evaluation.crop_results[0]
+
+    assert [gap.criterion_id for gap in result.gaps] == ["contenido_arcilla"]
+    assert result.gaps[0].phase_id == "germinacion"
+    assert result.gaps[0].observed_value == 5.0
+
+
 def test_critical_no_viable_generates_limiting_factor_and_is_excluded_from_ranking() -> None:
     evaluation = PureMcdaEvaluationEngine().evaluate(
         _command(),

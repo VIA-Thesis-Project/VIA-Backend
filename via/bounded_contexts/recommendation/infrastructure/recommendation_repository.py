@@ -32,6 +32,20 @@ def recommendation_to_model(recommendation: Recommendation, provider: str = "tem
         evaluation_id=recommendation.evaluation_id,
         crop_id=recommendation.crop_id,
         text=recommendation.text,
-        fragment_ids=[str(fragment_id) for fragment_id in recommendation.fragment_ids],
+        fragment_ids=[_evidence_to_json(item) for item in recommendation.evidence],
+        structured_output=recommendation.structured_output or {},
         provider=provider,
     )
+
+
+def _evidence_to_json(item) -> dict:
+    return {
+        "fragment_id": str(item.fragment_id),
+        "document_id": str(item.document_id),
+        "text": item.text,
+        "crop_tags": item.crop_tags,
+        "page_ref": item.page_ref,
+        "score": item.score,
+        "source_filename": item.source_filename,
+        "source_file_id": item.source_file_id,
+    }

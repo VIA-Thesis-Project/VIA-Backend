@@ -54,6 +54,19 @@ _MISSING_WEIGHT_THRESHOLD: float = 0.30
 # Topographic criteria are structural: a conclusion requires them even when their combined
 # weight (0.28) falls below the generic threshold.
 _STRUCTURAL_CRITERIA: frozenset[str] = frozenset({"aptitud_altitudinal", "aptitud_topografica"})
+_SITE_STATIC_CRITERIA: frozenset[str] = frozenset(
+    {
+        "aptitud_altitudinal",
+        "aptitud_topografica",
+        "reaccion_suelo_ph",
+        "contenido_arcilla",
+        "contenido_arena",
+        "carbono_organico_suelo",
+        "profundidad_suelo",
+        "salinidad_suelo",
+        "cobertura_actual_auxiliar",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -412,14 +425,14 @@ def _phase_gap_traces(phase_traces: list[PhaseEvaluationTrace]) -> list[PhaseGap
             observed_values=trace.observed_values,
             optimal_limits=trace.optimal_limits,
         )
-        for trace in phase_traces
+        for trace in _dedupe_site_static_traces(phase_traces)
         if trace.aggregated_membership < 1.0
     ]
 
 
 def _critical_traces(phase_traces: list[PhaseEvaluationTrace]) -> list[CriticalCriterionTrace]:
     traces: list[CriticalCriterionTrace] = []
-    for trace in phase_traces:
+    for trace in _dedupe_site_static_traces(phase_traces):
         if trace.aggregated_membership != 0.0:
             continue
         if trace.critical_policy not in {CriticalPolicy.NO_VIABLE.value, CriticalPolicy.PENALIZE.value}:
@@ -438,6 +451,25 @@ def _critical_traces(phase_traces: list[PhaseEvaluationTrace]) -> list[CriticalC
             )
         )
     return traces
+
+
+def _dedupe_site_static_traces(phase_traces: list[PhaseEvaluationTrace]) -> list[PhaseEvaluationTrace]:
+    selected_static: dict[str, PhaseEvaluationTrace] = {}
+    dynamic_traces: list[PhaseEvaluationTrace] = []
+
+    for trace in phase_traces:
+        if trace.criterion_id not in _SITE_STATIC_CRITERIA:
+            dynamic_traces.append(trace)
+            continue
+        current = selected_static.get(trace.criterion_id)
+        if current is None or _site_trace_sort_key(trace) < _site_trace_sort_key(current):
+            selected_static[trace.criterion_id] = trace
+
+    return dynamic_traces + list(selected_static.values())
+
+
+def _site_trace_sort_key(trace: PhaseEvaluationTrace) -> tuple[float, str]:
+    return (trace.aggregated_membership, trace.phase_id)
 
 
 def _apply_sufficiency_policy(

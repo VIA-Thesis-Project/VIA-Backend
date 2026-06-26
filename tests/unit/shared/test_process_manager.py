@@ -227,6 +227,40 @@ def test_evaluation_completed_enqueues_recommendation_command_with_saga_correlat
     assert outbox.payload_json["max_fragments"] == 5
 
 
+def test_evaluation_completed_enqueues_recommendation_for_each_recommendable_crop() -> None:
+    session = FakeSession()
+    saga = _saga(EvaluationSagaStatus.EXTRACCION_COMPLETADA.value)
+    session.sagas[saga.id] = saga
+    manager = EvaluationProcessManager(lambda: session, FakeRulebookReadModel(), FakeParcelGeometryReadModel())
+    event = Message.event(
+        EVALUACION_VIABILIDAD_COMPLETADA,
+        {
+            "evaluation_id": str(saga.id),
+            "results": [
+                {"crop_id": "maiz_amarillo_duro", "viability_category": "VIABLE"},
+                {"crop_id": "mandarina_murcott", "viability_category": "CONDICIONAL"},
+                {"crop_id": "palta_hass", "viability_category": "NO_VIABLE"},
+                {"crop_id": "uva_de_mesa_sweet_globe", "viability_category": "NO_CONCLUYENTE"},
+            ],
+        },
+        correlation_id=saga.id,
+    )
+
+    manager.handle_event(event)
+
+    outbox = [model for model in session.added if isinstance(model, OutboxMessageModel)]
+    assert saga.status == EvaluationSagaStatus.EVALUACION_COMPLETADA.value
+    assert [item.message_type for item in outbox] == [
+        GENERAR_RECOMENDACION_SOLICITADA,
+        GENERAR_RECOMENDACION_SOLICITADA,
+    ]
+    assert [item.payload_json["crop_id"] for item in outbox] == [
+        "maiz_amarillo_duro",
+        "mandarina_murcott",
+    ]
+    assert all(item.payload_json["evaluation_id"] == str(saga.id) for item in outbox)
+
+
 def test_evaluation_completed_preserves_incoming_correlation_id_for_recommendation_command() -> None:
     session = FakeSession()
     saga = _saga(EvaluationSagaStatus.EXTRACCION_COMPLETADA.value)

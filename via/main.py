@@ -54,9 +54,13 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.relay_worker.start()
+        start = getattr(app.state.relay_worker, "start", None)
+        if callable(start):
+            start()
         yield
-        app.state.relay_worker.stop(timeout=10)
+        stop = getattr(app.state.relay_worker, "stop", None)
+        if callable(stop):
+            stop(timeout=10)
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.runtime = configure_application_runtime(session_factory=session_factory)

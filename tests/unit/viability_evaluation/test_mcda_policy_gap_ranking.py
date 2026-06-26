@@ -87,6 +87,32 @@ def test_penalty_factor_modifies_score_after_epsilon_aggregation() -> None:
     assert penalized.score == pytest.approx(no_penalty.score * 0.5)
 
 
+def test_penalize_policy_applies_one_penalty_per_static_criterion() -> None:
+    result = CriticalPolicyService().apply(
+        aggregated_memberships={"contenido_arcilla": 0.0, "temp": 1.0},
+        hybrid_weights={"contenido_arcilla": 0.5, "temp": 0.5},
+        calc_condition=CalcCondition.DEFINITIVO,
+        critical_traces=[
+            _trace(
+                policy=CriticalPolicy.PENALIZE,
+                penalty_factor=0.5,
+                criterion_id="contenido_arcilla",
+                phase_id="germinacion",
+            ),
+            _trace(
+                policy=CriticalPolicy.PENALIZE,
+                penalty_factor=0.5,
+                criterion_id="contenido_arcilla",
+                phase_id="floracion",
+            ),
+        ],
+    )
+
+    assert len(result.limiting_factors) == 1
+    assert result.limiting_factors[0].criterion_id == "contenido_arcilla"
+    assert result.score == pytest.approx(0.05)
+
+
 def test_limiting_factor_keeps_all_required_fields() -> None:
     result = CriticalPolicyService().apply(
         aggregated_memberships={"rain": 0.0},
@@ -226,10 +252,15 @@ def test_rank_position_is_assigned_only_to_included_crops() -> None:
     assert by_crop["maiz"].rank_position is None
 
 
-def _trace(policy: CriticalPolicy, penalty_factor: float | None = None) -> CriticalCriterionTrace:
+def _trace(
+    policy: CriticalPolicy,
+    penalty_factor: float | None = None,
+    criterion_id: str = "rain",
+    phase_id: str = "flowering",
+) -> CriticalCriterionTrace:
     return CriticalCriterionTrace(
-        criterion_id="rain",
-        phase_id="flowering",
+        criterion_id=criterion_id,
+        phase_id=phase_id,
         policy=policy,
         penalty_factor=penalty_factor,
         observed_value=12.0,

@@ -117,8 +117,8 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
                 return
 
             outgoing = self._transition_for_event(repository, saga, message)
-            if outgoing is not None:
-                self._outbox_writer.write(session, outgoing, AGGREGATE_TYPE, evaluation_id)
+            for outgoing_message in _as_messages(outgoing):
+                self._outbox_writer.write(session, outgoing_message, AGGREGATE_TYPE, evaluation_id)
             self.mark_as_processed(session, message.id, consumer_name)
 
     def _transition_for_event(
@@ -126,7 +126,7 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
         repository: EvaluationSagaRepository,
         saga: EvaluationSagaModel,
         message: Message,
-    ) -> Message | None:
+    ) -> Message | list[Message] | None:
         """Apply the state transition for a known event and build the next message."""
 
         evaluation_id = saga.id
@@ -141,12 +141,18 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
             changed = repository.transition(saga, EvaluationSagaStatus.EVALUACION_COMPLETADA.value, message.id)
             if not changed:
                 return None
-            command = GenerarRecomendacionSolicitada(evaluation_id=evaluation_id, parcel_id=saga.parcel_id)
-            return Message.command(
-                GENERAR_RECOMENDACION_SOLICITADA,
-                command.to_payload(),
-                correlation_id=_outgoing_correlation_id(message, evaluation_id),
-            )
+            return [
+                Message.command(
+                    GENERAR_RECOMENDACION_SOLICITADA,
+                    GenerarRecomendacionSolicitada(
+                        evaluation_id=evaluation_id,
+                        parcel_id=saga.parcel_id,
+                        crop_id=crop_id,
+                    ).to_payload(),
+                    correlation_id=_outgoing_correlation_id(message, evaluation_id),
+                )
+                for crop_id in _recommendable_crop_ids(message.payload)
+            ]
 
         if message.type == RECOMENDACION_GENERADA:
             changed = repository.transition(saga, EvaluationSagaStatus.RECOMENDACION_COMPLETADA.value, message.id)
@@ -190,6 +196,33 @@ def _extract_evaluation_id(message: Message) -> UUID:
 
 def _outgoing_correlation_id(message: Message, fallback_evaluation_id: UUID) -> UUID:
     return message.correlation_id or fallback_evaluation_id
+
+
+def _recommendable_crop_ids(payload: dict[str, Any]) -> list[str | None]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return [None]
+
+    crop_ids: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        category = str(result.get("viability_category") or "")
+        crop_id = result.get("crop_id")
+        if category not in {"VIABLE", "CONDICIONAL"}:
+            continue
+        if crop_id is None:
+            continue
+        crop_ids.append(str(crop_id))
+    return list(dict.fromkeys(crop_ids))
+
+
+def _as_messages(value: Message | list[Message] | None) -> list[Message]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
 
 
 def _to_payload(value: Any) -> Any:

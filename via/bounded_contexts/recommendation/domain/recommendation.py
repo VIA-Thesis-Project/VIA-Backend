@@ -23,6 +23,7 @@ class Recommendation:
     text: str
     sections: list[RecommendationSection]
     evidence: list[DocumentaryEvidence]
+    structured_output: dict = field(default_factory=dict)
     status: RecommendationStatus = RecommendationStatus.GENERATED
     id: UUID = field(default_factory=uuid4)
 

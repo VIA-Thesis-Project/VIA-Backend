@@ -133,10 +133,14 @@ class CriticalPolicyService:
         limiting_factors: list[LimitingFactor] = []
         no_viable_forced = False
         penalty_factors: list[float] = []
+        penalized_criteria: set[str] = set()
 
         for trace in critical_traces:
             if float(trace.membership) != 0.0:
                 continue
+            if trace.criterion_id in penalized_criteria:
+                continue
+            penalized_criteria.add(trace.criterion_id)
             limiting_factors.append(_limiting_factor_from_trace(trace))
             if trace.policy == CriticalPolicy.NO_VIABLE:
                 no_viable_forced = True

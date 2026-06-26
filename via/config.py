@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
+import pathlib
 from dataclasses import dataclass
 from os import environ as process_environ
 from typing import Mapping
+
+
+def _load_dotenv(env_file: str = ".env") -> None:
+    """Load key=value pairs from *env_file* into os.environ (existing vars win)."""
+    path = pathlib.Path(env_file)
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in process_environ:
+            process_environ[key] = val
+
+
+_load_dotenv()
 
 
 DEFAULT_APP_NAME = "VIA - Viabilidad Inteligente Agrícola"
@@ -33,6 +53,9 @@ DEFAULT_VERTEX_AI_TIMEOUT_SECONDS = 30
 DEFAULT_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_GEMINI_API_TIMEOUT_SECONDS = 30
 DEFAULT_GEMINI_API_MAX_OUTPUT_TOKENS = 2048
+DEFAULT_OPENAI_RAG_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_FILE_SEARCH_MAX_RESULTS = 10
+DEFAULT_OPENAI_FILE_SEARCH_PROMPT_VERSION = "v2"
 
 
 @dataclass(frozen=True)
@@ -78,6 +101,15 @@ class Settings:
     gemini_api_base_url: str
     gemini_api_timeout_seconds: int
     gemini_api_max_output_tokens: int
+    openai_api_key: str | None
+    openai_rag_model: str | None
+    openai_file_search_max_results: int
+    openai_file_search_prompt_version: str
+    openai_vector_store_maiz_amarillo_duro_id: str | None
+    openai_vector_store_palta_hass_id: str | None
+    openai_vector_store_mandarina_murcott_id: str | None
+    openai_vector_store_maracuya_criolla_amarilla_id: str | None
+    openai_vector_store_uva_de_mesa_sweet_globe_id: str | None
 
 
 class ConfigurationError(ValueError):
@@ -170,6 +202,32 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             "GEMINI_API_MAX_OUTPUT_TOKENS",
             str(DEFAULT_GEMINI_API_MAX_OUTPUT_TOKENS),
         ),
+        openai_api_key=_read_optional_text(source, "OPENAI_API_KEY"),
+        openai_rag_model=_read_optional_text(source, "OPENAI_RAG_MODEL"),
+        openai_file_search_max_results=_read_int(
+            source,
+            "OPENAI_FILE_SEARCH_MAX_RESULTS",
+            str(DEFAULT_OPENAI_FILE_SEARCH_MAX_RESULTS),
+        ),
+        openai_file_search_prompt_version=source.get(
+            "OPENAI_FILE_SEARCH_PROMPT_VERSION",
+            DEFAULT_OPENAI_FILE_SEARCH_PROMPT_VERSION,
+        ),
+        openai_vector_store_maiz_amarillo_duro_id=_read_optional_text(
+            source, "VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID"
+        ),
+        openai_vector_store_palta_hass_id=_read_optional_text(
+            source, "VIA_VECTOR_STORE_PALTA_HASS_ID"
+        ),
+        openai_vector_store_mandarina_murcott_id=_read_optional_text(
+            source, "VIA_VECTOR_STORE_MANDARINA_MURCOTT_ID"
+        ),
+        openai_vector_store_maracuya_criolla_amarilla_id=_read_optional_text(
+            source, "VIA_VECTOR_STORE_MARACUYA_CRIOLLA_AMARILLA_ID"
+        ),
+        openai_vector_store_uva_de_mesa_sweet_globe_id=_read_optional_text(
+            source, "VIA_VECTOR_STORE_UVA_DE_MESA_SWEET_GLOBE_ID"
+        ),
     )
     validate_settings(settings)
     return settings
@@ -228,8 +286,12 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigurationError("GEE_TIMEOUT_SECONDS must be positive")
     if settings.gee_max_retries < 0:
         raise ConfigurationError("GEE_MAX_RETRIES must be >= 0")
-    if settings.llm_drafting_provider not in {"template", "local_http", "vertex_gemma", "gemini_api"}:
-        raise ConfigurationError("LLM_DRAFTING_PROVIDER must be template, local_http, vertex_gemma or gemini_api")
+    if settings.llm_drafting_provider not in {
+        "template", "local_http", "vertex_gemma", "gemini_api", "openai_file_search"
+    }:
+        raise ConfigurationError(
+            "LLM_DRAFTING_PROVIDER must be template, local_http, vertex_gemma, gemini_api or openai_file_search"
+        )
     if settings.llm_timeout_seconds <= 0:
         raise ConfigurationError("LLM_TIMEOUT_SECONDS must be positive")
     if settings.llm_max_prompt_chars <= 0:
@@ -261,6 +323,13 @@ def validate_settings(settings: Settings) -> None:
             raise ConfigurationError("GEMINI_API_KEY is required when LLM_DRAFTING_PROVIDER=gemini_api")
         if not settings.gemini_api_model:
             raise ConfigurationError("GEMINI_API_MODEL is required when LLM_DRAFTING_PROVIDER=gemini_api")
+    if settings.openai_file_search_max_results <= 0:
+        raise ConfigurationError("OPENAI_FILE_SEARCH_MAX_RESULTS must be positive")
+    if settings.llm_drafting_provider == "openai_file_search":
+        if not settings.openai_api_key:
+            raise ConfigurationError("OPENAI_API_KEY is required when LLM_DRAFTING_PROVIDER=openai_file_search")
+        if not settings.openai_rag_model:
+            raise ConfigurationError("OPENAI_RAG_MODEL is required when LLM_DRAFTING_PROVIDER=openai_file_search")
     if settings.gee_enabled:
         if not settings.gee_project:
             raise ConfigurationError("GEE_PROJECT is required when GEE_ENABLED=True")
