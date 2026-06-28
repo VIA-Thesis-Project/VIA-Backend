@@ -8,7 +8,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import MembershipFunction, RulebookStatus, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import InterventionClass, MembershipFunction, RulebookStatus, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.orm_models import (
     CriterionModel,
     PhaseRequirementModel,
@@ -19,7 +19,7 @@ from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository
 
 
 def _make_rulebook() -> tuple[Rulebook, Criterion, PhenologicalPhase, PhaseRequirement]:
-    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0)
+    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0, InterventionClass.MITIGABLE)
     phase = PhenologicalPhase(uuid.uuid4(), "Floracion", 30, 1)
     requirement = PhaseRequirement(
         id=uuid.uuid4(),

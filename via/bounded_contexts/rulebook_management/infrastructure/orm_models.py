@@ -38,6 +38,7 @@ class CriterionModel(Base):
     critical_policy: Mapped[str | None] = mapped_column(String(20))
     penalty_factor: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     ahp_weight: Mapped[Decimal] = mapped_column(Numeric(6, 5), nullable=False)
+    intervention_class: Mapped[str] = mapped_column(String(20), nullable=False)
     doc_source: Mapped[str | None] = mapped_column(Text)
     technical_notes: Mapped[str | None] = mapped_column(Text)
 

@@ -254,6 +254,7 @@ def build_recommendation_drafting_provider(settings: Settings) -> IRecommendatio
                 prompt_version=settings.openai_file_search_prompt_version,
                 timeout_seconds=settings.llm_timeout_seconds,
                 vector_store_map=_build_vector_store_map(settings),
+                max_output_tokens=1600,
             )
         )
     return LocalHttpLlmDraftingProvider(

@@ -37,7 +37,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, MembershipFunction, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, InterventionClass, MembershipFunction, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 
 _SCRIPTS_DIR = pathlib.Path(__file__).parent
@@ -274,6 +274,7 @@ def _build_criterion(crop_id: str, criterion_name: str) -> Criterion:
         penalty_factor=penalty_factor,
         ahp_weight=_AHP_WEIGHTS[criterion_name],
         doc_source=DIAG_DOC_SOURCE,
+        intervention_class=InterventionClass.MITIGABLE,
         technical_notes=(
             f"{DIAG_VERSION_NOTE}. Criterio mapeado a "
             f"{DIAG_EXTRACTION_BINDING.variable_name} (Sentinel-2 B8); "

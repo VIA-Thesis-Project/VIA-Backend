@@ -26,6 +26,18 @@ class CriticalPolicy(StrEnum):
     PENALIZE = "PENALIZE"
 
 
+class InterventionClass(StrEnum):
+    """Declarative classification of how a criterion gap can be addressed.
+
+    DATA_QUALITY_REVIEW is intentionally excluded: it is a runtime diagnosis
+    produced by gap_analysis, not a static property of the criterion.
+    """
+
+    STRUCTURAL = "STRUCTURAL"
+    MITIGABLE = "MITIGABLE"
+    CORRECTABLE = "CORRECTABLE"
+
+
 @dataclass(frozen=True)
 class MembershipFunction:
     """Trapezoidal membership function owned by a phase requirement."""

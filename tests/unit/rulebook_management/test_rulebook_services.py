@@ -11,6 +11,7 @@ from via.bounded_contexts.rulebook_management.domain.phase_requirement import Ex
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
+    InterventionClass,
     MembershipFunction,
     RulebookStatus,
     TemporalPeriod,
@@ -115,7 +116,7 @@ class FakeRulebookRepository:
 
 
 def _rule_parts() -> tuple[Criterion, PhenologicalPhase, PhaseRequirement]:
-    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0)
+    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0, InterventionClass.MITIGABLE)
     phase = PhenologicalPhase(uuid.uuid4(), "Floracion", 30, 1)
     requirement = PhaseRequirement(
         id=uuid.uuid4(),

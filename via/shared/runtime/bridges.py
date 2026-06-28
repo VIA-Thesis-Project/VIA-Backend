@@ -328,6 +328,7 @@ def _rulebook_recommendation_metadata(rulebook: Rulebook) -> dict[tuple[str, str
             "unit": requirement.extraction_binding.unit,
             "phase_name": phase.name,
             "recommendation_topic": _recommendation_topic(criterion.name, phase.name, requirement),
+            "intervention_class": criterion.intervention_class.value,
         }
     return metadata
 

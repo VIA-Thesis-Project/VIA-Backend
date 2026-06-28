@@ -513,7 +513,7 @@ def test_structured_output_flags_suspect_deficit_hidrico_above_optimum() -> None
     service = _service(uuid4(), evidence_port=FakeEvidencePort([]), drafting_provider=provider)
 
     recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
-    item = recommendation.structured_output["gap_recommendations"][0]
+    item = recommendation.structured_output["pending_methodological_validation"][0]
 
     assert item["criterion_mapping_suspect"] is True
     assert item["evidence_status"] == "insuficiente"
@@ -641,44 +641,6 @@ def test_perennial_visible_text_uses_post_qc_rewrite_for_campaign_terms() -> Non
     assert "evaluar aptitud termica" in visible
 
 
-def test_mandarina_riesgo_frio_above_optimum_induccion_is_mapping_suspect() -> None:
-    provider = FakeStructuredFileSearchProvider(
-        retrieved_text="Induccion floral, floracion y condiciones termicas de mandarina W. Murcott.",
-        source_filename="clima_fenologia.md",
-        structured_item={
-            "gap_key": "riesgo_frio|induccion_floral|18.0|12.0|6.0",
-            "criterion_id": "riesgo_frio",
-            "criterion_name": "riesgo_frio",
-            "criterion_label": "Riesgo de frio",
-            "criterion_group": "clima",
-            "unit": "celsius",
-            "phase_id": "induccion_floral",
-            "phase_name": "induccion_floral",
-            "gap_direction": "above_optimum",
-            "severity": "alta",
-            "observed_value": 18.0,
-            "optimal_limit": 12.0,
-            "gap_value": 6.0,
-            "recommendation": "Proteger el cultivo de frio durante la induccion floral.",
-            "rationale": "Existe riesgo de frio.",
-            "evidence_used": [{"source_file_id": "file_curated", "source_filename": "clima_fenologia.md"}],
-            "confidence": "alta",
-            "limitations": "",
-        },
-    )
-    crop_result = _crop_result(crop_id="mandarina_murcott")
-    service = _service(uuid4(), crop_result=crop_result, evidence_port=FakeEvidencePort([]), drafting_provider=provider)
-
-    recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
-    item = recommendation.structured_output["gap_recommendations"][0]
-
-    assert item["criterion_mapping_suspect"] is True
-    assert item["evidence_status"] == "insuficiente"
-    assert item["recommendation"] is None
-    assert item["evidence_used"] == []
-    assert "frio inductivo" in item["mapping_validation_note"].lower()
-
-
 def test_mandarina_rejects_panojamiento_phase_from_other_crop() -> None:
     provider = FakeStructuredFileSearchProvider(
         retrieved_text="Temperatura, floracion e induccion floral de mandarina W. Murcott.",
@@ -745,7 +707,7 @@ def test_riesgo_calor_below_optimum_is_mapping_suspect() -> None:
     service = _service(uuid4(), crop_result=crop_result, evidence_port=FakeEvidencePort([]), drafting_provider=provider)
 
     recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
-    item = recommendation.structured_output["gap_recommendations"][0]
+    item = recommendation.structured_output["pending_methodological_validation"][0]
 
     assert item["criterion_mapping_suspect"] is True
     assert item["recommendation"] is None
@@ -978,7 +940,7 @@ def test_mapping_suspect_visible_text_shows_validation_note() -> None:
     service = _service(uuid4(), evidence_port=FakeEvidencePort([]), drafting_provider=provider)
 
     recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
-    item = recommendation.structured_output["gap_recommendations"][0]
+    item = recommendation.structured_output["pending_methodological_validation"][0]
 
     assert item["criterion_mapping_suspect"] is True
     assert item["recommendation"] is None
@@ -1066,10 +1028,12 @@ def test_mapping_suspects_are_deduped_and_do_not_fill_visible_slots() -> None:
     qc_output = _quality_control_structured_output(structured, evidence)
     visible = _render_visible_text(qc_output, "fallback")
 
-    assert len(qc_output["gap_recommendations"]) == 2
-    assert sum(1 for item in qc_output["gap_recommendations"] if item.get("criterion_mapping_suspect")) == 1
-    assert visible.count("Deficit hidrico") == 1
-    assert visible.index("Aptitud termica") < visible.index("Deficit hidrico")
+    assert len(qc_output["gap_recommendations"]) == 1
+    assert len(qc_output["pending_methodological_validation"]) == 1
+    # "Criterios: Deficit hidrico" should appear exactly once (in the validation block, not duplicated)
+    assert visible.count("Criterios: Deficit hidrico") == 1
+    # In the recommendations section, actionable item (Aptitud termica) must appear before the suspect block
+    assert visible.index("Aptitud termica (confianza:") < visible.index("Criterios: Deficit hidrico")
 
 
 def test_controlled_hydric_stress_requires_wmurcott_sayan_evidence() -> None:

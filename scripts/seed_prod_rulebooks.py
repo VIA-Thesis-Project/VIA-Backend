@@ -210,7 +210,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, MembershipFunction, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, InterventionClass, MembershipFunction, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 
 _SCRIPTS_DIR = pathlib.Path(__file__).parent
@@ -254,6 +254,21 @@ _SOIL_CRITERIA = frozenset({
     "contenido_arena",
     "carbono_organico_suelo",
 })
+
+_INTERVENTION_CLASS: dict[str, InterventionClass] = {
+    "aptitud_termica":           InterventionClass.MITIGABLE,
+    "riesgo_frio":               InterventionClass.MITIGABLE,
+    "riesgo_calor":              InterventionClass.MITIGABLE,
+    "disponibilidad_hidrica":    InterventionClass.CORRECTABLE,
+    "deficit_hidrico":           InterventionClass.CORRECTABLE,
+    "aptitud_altitudinal":       InterventionClass.STRUCTURAL,
+    "aptitud_topografica":       InterventionClass.MITIGABLE,
+    "reaccion_suelo_ph":         InterventionClass.CORRECTABLE,
+    "contenido_arcilla":         InterventionClass.CORRECTABLE,
+    "contenido_arena":           InterventionClass.CORRECTABLE,
+    "carbono_organico_suelo":    InterventionClass.CORRECTABLE,
+    "cobertura_actual_auxiliar": InterventionClass.STRUCTURAL,
+}
 
 
 # ─── Dataset keys ─────────────────────────────────────────────────────────────
@@ -1420,7 +1435,10 @@ def _build_criterion(
     if criterion_name == "cobertura_actual_auxiliar":
         role_note = (
             "variable auxiliar NDVI (Sentinel-2). Peso 0.02; no determina viabilidad. "
-            "Trapecio amplio: no colapsa por barbecho ni suelo preparado."
+            "Trapecio amplio: no colapsa por barbecho ni suelo preparado. "
+            "Clasificado STRUCTURAL por convencion para suprimir recomendacion; "
+            "no es un impedimento estructural real de la parcela (cf. aptitud_altitudinal). "
+            "Deuda de modelado: considerar valor NON_ACTIONABLE en iteracion futura."
         )
     elif criterion_name in _SOIL_CRITERIA:
         role_note = (
@@ -1429,6 +1447,13 @@ def _build_criterion(
         )
     elif criterion_name in ("aptitud_altitudinal", "aptitud_topografica"):
         role_note = "criterio estructural estatico (SRTM)."
+    elif criterion_name in ("disponibilidad_hidrica", "deficit_hidrico"):
+        role_note = (
+            "criterio climatico-hidrico (ERA5-Land / CHIRPS). "
+            "Clasificado CORRECTABLE bajo asuncion de acceso a riego. "
+            "En contexto de secano sin fuente de agua accesible, "
+            "este criterio podria ser de facto STRUCTURAL."
+        )
     else:
         role_note = "criterio climatico (ERA5-Land / CHIRPS)."
 
@@ -1439,6 +1464,7 @@ def _build_criterion(
         critical_policy=policy,
         penalty_factor=penalty_factor,
         ahp_weight=ahp_weights[criterion_name],
+        intervention_class=_INTERVENTION_CLASS[criterion_name],
         doc_source=doc_source,
         technical_notes=(
             f"prod_rulebook_v1 {crop_id}. "

@@ -20,6 +20,7 @@ from via.bounded_contexts.rulebook_management.domain.phenological_phase import P
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
     CriticalPolicy,
+    InterventionClass,
     MembershipFunction,
     RulebookStatus,
     TemporalPeriod,
@@ -51,6 +52,7 @@ def _criterion(
         critical_policy=critical_policy,
         penalty_factor=penalty_factor,
         ahp_weight=ahp_weight,
+        intervention_class=InterventionClass.MITIGABLE,
         doc_source="test",
         technical_notes=None,
     )

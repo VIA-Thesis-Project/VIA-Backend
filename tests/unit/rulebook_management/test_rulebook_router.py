@@ -13,7 +13,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import MembershipFunction, RulebookStatus, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import InterventionClass, MembershipFunction, RulebookStatus, TemporalPeriod
 from via.bounded_contexts.rulebook_management.interfaces import rulebook_router
 from via.bounded_contexts.rulebook_management.interfaces.resources import (
     CreateRulebookRequest,
@@ -114,7 +114,7 @@ def _rulebook(status: RulebookStatus) -> Rulebook:
 
 
 def _domain_parts() -> tuple[Criterion, PhenologicalPhase, PhaseRequirement]:
-    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0)
+    criterion = Criterion(uuid.uuid4(), "Vigor", False, None, None, 1.0, InterventionClass.MITIGABLE)
     phase = PhenologicalPhase(uuid.uuid4(), "Floracion", 30, 1)
     requirement = PhaseRequirement(
         id=uuid.uuid4(),
@@ -133,7 +133,7 @@ def _create_request() -> CreateRulebookRequest:
     phase_id = uuid.uuid4()
     return CreateRulebookRequest(
         crop_id="cacao",
-        criteria=[CriterionResource(id=criterion_id, name="Vigor", ahp_weight=1.0)],
+        criteria=[CriterionResource(id=criterion_id, name="Vigor", ahp_weight=1.0, intervention_class="MITIGABLE")],
         phases=[PhenologicalPhaseResource(id=phase_id, name="Floracion", duration_days=30, sequence_order=1)],
         phase_requirements=[
             PhaseRequirementResource(

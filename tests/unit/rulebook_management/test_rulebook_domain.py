@@ -12,6 +12,7 @@ from via.bounded_contexts.rulebook_management.domain.phenological_phase import P
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
     CriticalPolicy,
+    InterventionClass,
     MembershipFunction,
     RulebookStatus,
     RulebookValidationError,
@@ -42,6 +43,7 @@ def test_critical_policy_must_be_approved_value() -> None:
             critical_policy="BLOCK",  # type: ignore[arg-type]
             penalty_factor=None,
             ahp_weight=1.0,
+            intervention_class=InterventionClass.MITIGABLE,
         )
 
 
@@ -93,25 +95,63 @@ def test_rulebook_rejects_invalid_weight_sums() -> None:
         rulebook.validate(0.001)
 
 
+def test_validate_semantic_passes_for_riesgo_frio_with_cold_induction_trapezoid() -> None:
+    criterion = Criterion(uuid.uuid4(), "riesgo_frio", False, None, None, 1.0, InterventionClass.MITIGABLE)
+    phase = PhenologicalPhase(uuid.uuid4(), "induccion_floral", 30, 1)
+    rulebook = Rulebook(
+        id=uuid.uuid4(),
+        crop_id="mandarina_murcott",
+        version=1,
+        status=RulebookStatus.DRAFT,
+        criteria=[criterion],
+        phases=[phase],
+        phase_requirements=[_requirement(criterion.id, phase.id, membership_fn=MembershipFunction(a=4, b=8, c=15, d=22))],
+    )
+
+    rulebook.validate_semantic()  # must not raise
+
+
+def test_validate_semantic_rejects_riesgo_frio_with_warm_induction_trapezoid() -> None:
+    criterion = Criterion(uuid.uuid4(), "riesgo_frio", False, None, None, 1.0, InterventionClass.MITIGABLE)
+    phase = PhenologicalPhase(uuid.uuid4(), "induccion_floral", 30, 1)
+    rulebook = Rulebook(
+        id=uuid.uuid4(),
+        crop_id="mandarina_murcott",
+        version=1,
+        status=RulebookStatus.DRAFT,
+        criteria=[criterion],
+        phases=[phase],
+        phase_requirements=[_requirement(criterion.id, phase.id, membership_fn=MembershipFunction(a=10, b=14, c=20, d=26))],
+    )
+
+    with pytest.raises(RulebookValidationError, match="induccion"):
+        rulebook.validate_semantic()
+
+
 def _criterion(
     ahp_weight: float = 1.0,
     is_critical: bool = False,
     critical_policy: CriticalPolicy | None = None,
     penalty_factor: float | None = None,
 ) -> Criterion:
-    return Criterion(uuid.uuid4(), "Clima", is_critical, critical_policy, penalty_factor, ahp_weight)
+    return Criterion(uuid.uuid4(), "Clima", is_critical, critical_policy, penalty_factor, ahp_weight, InterventionClass.MITIGABLE)
 
 
 def _phase(sequence_order: int = 1) -> PhenologicalPhase:
     return PhenologicalPhase(uuid.uuid4(), f"Fase {sequence_order}", 30, sequence_order)
 
 
-def _requirement(criterion_id: uuid.UUID, phase_id: uuid.UUID, phase_weight: float = 1.0) -> PhaseRequirement:
+def _requirement(
+    criterion_id: uuid.UUID,
+    phase_id: uuid.UUID,
+    phase_weight: float = 1.0,
+    membership_fn: MembershipFunction | None = None,
+) -> PhaseRequirement:
     return PhaseRequirement(
         id=uuid.uuid4(),
         criterion_id=criterion_id,
         phase_id=phase_id,
-        membership_fn=MembershipFunction(a=0, b=1, c=2, d=3),
+        membership_fn=membership_fn or MembershipFunction(a=0, b=1, c=2, d=3),
         phase_weight=phase_weight,
         temporal_periods=[TemporalPeriod("mensual", 1.0)],
         extraction_binding=ExtractionBinding("ndvi", "sentinel-2", "B08", "index", "monthly"),

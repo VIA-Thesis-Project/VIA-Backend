@@ -101,7 +101,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, MembershipFunction, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, InterventionClass, MembershipFunction, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 
 _SCRIPTS_DIR = pathlib.Path(__file__).parent
@@ -231,6 +231,14 @@ _CRITERION_BINDING: dict[str, ExtractionBinding] = {
 # Variables de sensor remoto de cobertura actual son auxiliares (10% c/u).
 # Esta distribución aplica de forma uniforme a todos los cultivos.
 # Sum = 1.00
+
+_MULTI_INTERVENTION_CLASS: dict[str, InterventionClass] = {
+    "aptitud_altitudinal":         InterventionClass.STRUCTURAL,
+    "aptitud_topografica":         InterventionClass.MITIGABLE,
+    "cobertura_actual":            InterventionClass.MITIGABLE,
+    "cobertura_suelo_ajustada":    InterventionClass.MITIGABLE,
+    "humedad_vegetacion_auxiliar": InterventionClass.MITIGABLE,
+}
 
 _MULTI_AHP_WEIGHTS: dict[str, float] = {
     "aptitud_altitudinal":         0.40,
@@ -479,6 +487,7 @@ def _build_criterion(crop_id: str, criterion_name: str) -> Criterion:
         penalty_factor=penalty_factor,
         ahp_weight=_MULTI_AHP_WEIGHTS[criterion_name],
         doc_source=MULTI_DOC_SOURCE,
+        intervention_class=_MULTI_INTERVENTION_CLASS[criterion_name],
         technical_notes=(
             f"{MULTI_VERSION_NOTE}. "
             f"Criterio '{criterion_name}' mapeado a {binding.variable_name} "
