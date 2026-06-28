@@ -4,10 +4,86 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
 from via.bounded_contexts.recommendation.domain.recommendation import Recommendation
+
+
+# ─── Gap analysis types ───────────────────────────────────────────────────────
+
+
+class GapClass(StrEnum):
+    """Broad classification of a criterion gap by intervention feasibility."""
+
+    STRUCTURAL_NOT_CORRECTABLE = "STRUCTURAL_NOT_CORRECTABLE"
+    MITIGABLE = "MITIGABLE"
+    CORRECTABLE = "CORRECTABLE"
+    DATA_QUALITY_REVIEW = "DATA_QUALITY_REVIEW"
+
+
+class Correctability(StrEnum):
+    """Vocabulary for how a gap can be addressed in the recommendation narrative."""
+
+    corregible = "corregible"
+    mitigable = "mitigable"
+    no_corregible = "no_corregible"
+    requiere_validacion = "requiere_validacion"
+    requiere_revision_rulebook = "requiere_revision_rulebook"
+
+
+@dataclass(frozen=True)
+class GapOccurrence:
+    """Single phase-level gap observation belonging to a grouped criterion."""
+
+    phase_id: str
+    phase_name: str | None
+    most_limiting_period: str
+    observed_value: float
+    optimal_limit: float
+    gap_value: float
+    gap_direction: str | None
+    severity: str | None
+
+
+@dataclass(frozen=True)
+class GapGroup:
+    """Criterion-level gap aggregating all its phase occurrences."""
+
+    criterion_id: str
+    criterion_name: str | None
+    criterion_label: str | None
+    criterion_group: str | None
+    unit: str | None
+    gap_class: GapClass
+    correctability: Correctability
+    occurrences: list[GapOccurrence]
+    representative_observed: float
+    representative_optimal: float
+    representative_gap: float
+    representative_direction: str | None
+    representative_severity: str | None
+    recurrence: int
+    rulebook_review_required: bool
+    priority_score: float
+    data_quality_flags: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GapAnalysisResult:
+    """Complete gap analysis output for one crop result."""
+
+    crop_id: str
+    viability_category: str
+    viability_interpretation: str
+    gap_groups: list[GapGroup]
+    total_criteria_with_gaps: int
+    structural_count: int
+    correctable_count: int
+    mitigable_count: int
+    data_quality_count: int
+    ruling_structural_barriers: list[str]
 
 
 @dataclass(frozen=True)
@@ -28,6 +104,7 @@ class GapData:
     gap_direction: str | None = None
     severity: str | None = None
     recommendation_topic: str | None = None
+    intervention_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +127,7 @@ class LimitingFactorData:
     gap_direction: str | None = None
     severity: str | None = None
     recommendation_topic: str | None = None
+    intervention_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +186,7 @@ class RecommendationDraftContext:
     evaluation_id: UUID
     crop_result: CropEvaluationResultData
     evidence: list[EvidenceData]
+    gap_analysis: GapAnalysisResult | None = None
 
 
 class IEvaluationResultsPort(Protocol):

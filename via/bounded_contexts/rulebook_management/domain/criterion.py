@@ -7,6 +7,7 @@ from uuid import UUID
 
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
     CriticalPolicy,
+    InterventionClass,
     RulebookValidationError,
     validate_unit_weight,
 )
@@ -22,6 +23,7 @@ class Criterion:
     critical_policy: CriticalPolicy | None
     penalty_factor: float | None
     ahp_weight: float
+    intervention_class: InterventionClass
     doc_source: str | None = None
     technical_notes: str | None = None
 
@@ -31,6 +33,8 @@ class Criterion:
         if not self.name.strip():
             raise RulebookValidationError("criterion name must not be empty")
         validate_unit_weight(self.ahp_weight, "ahp_weight")
+        if not isinstance(self.intervention_class, InterventionClass):
+            raise RulebookValidationError("intervention_class must be a valid InterventionClass")
         if self.critical_policy is not None and not isinstance(self.critical_policy, CriticalPolicy):
             raise RulebookValidationError("critical_policy must be NO_VIABLE or PENALIZE")
         if self.is_critical and self.critical_policy is None:

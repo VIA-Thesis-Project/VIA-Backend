@@ -123,7 +123,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, MembershipFunction, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import CriticalPolicy, InterventionClass, MembershipFunction, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 
 _SCRIPTS_DIR = pathlib.Path(__file__).parent
@@ -390,6 +390,21 @@ _CRITERION_BINDING: dict[str, ExtractionBinding] = {
 # ─── Pesos AHP ────────────────────────────────────────────────────────────────
 # Clima: 0.48  Topografía: 0.20  Suelo: 0.27  Auxiliar remoto: 0.05
 # Suma = 1.00
+
+_INTERVENTION_CLASS: dict[str, InterventionClass] = {
+    "aptitud_termica":           InterventionClass.MITIGABLE,
+    "riesgo_frio":               InterventionClass.MITIGABLE,
+    "riesgo_calor":              InterventionClass.MITIGABLE,
+    "disponibilidad_hidrica":    InterventionClass.CORRECTABLE,
+    "deficit_hidrico":           InterventionClass.CORRECTABLE,
+    "aptitud_altitudinal":       InterventionClass.STRUCTURAL,
+    "aptitud_topografica":       InterventionClass.MITIGABLE,
+    "reaccion_suelo_ph":         InterventionClass.CORRECTABLE,
+    "contenido_arcilla":         InterventionClass.CORRECTABLE,
+    "contenido_arena":           InterventionClass.CORRECTABLE,
+    "carbono_organico_suelo":    InterventionClass.CORRECTABLE,
+    "cobertura_actual_auxiliar": InterventionClass.STRUCTURAL,
+}
 
 _AHP_WEIGHTS: dict[str, float] = {
     "aptitud_termica":           0.12,
@@ -729,6 +744,7 @@ def _build_criterion(crop_id: str, criterion_name: str) -> Criterion:
         penalty_factor=penalty_factor,
         ahp_weight=_AHP_WEIGHTS[criterion_name],
         doc_source=_DOC_SOURCE,
+        intervention_class=_INTERVENTION_CLASS[criterion_name],
         technical_notes=(
             f"{_VERSION_NOTE}. "
             f"Criterio '{criterion_name}' mapeado a {binding.variable_name} "

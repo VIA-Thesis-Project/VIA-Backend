@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from via.bounded_contexts.recommendation.application.gap_analysis import analyse_gaps
 from via.bounded_contexts.recommendation.application.ports import (
     CropEvaluationResultData,
     EvidenceData,
@@ -91,10 +92,12 @@ class RecommendationCommandService:
             gaps=crop_result.gaps,
             max_fragments=command.max_fragments,
         )
+        gap_analysis = analyse_gaps(crop_result)
         context = RecommendationDraftContext(
             evaluation_id=command.evaluation_id,
             crop_result=crop_result,
             evidence=evidence,
+            gap_analysis=gap_analysis,
         )
         text = self._drafting_provider.draft(context)
         evidence = evidence or _file_search_evidence_from_provider(
@@ -108,7 +111,9 @@ class RecommendationCommandService:
             text,
             evidence,
         )
-        structured_output = _quality_control_structured_output(structured_output, evidence, crop_result.crop_id)
+        structured_output = _quality_control_structured_output(
+            structured_output, evidence, crop_result.crop_id, crop_result.viability_category
+        )
         text = _render_visible_text(structured_output, text)
         recommendation = Recommendation(
             evaluation_id=command.evaluation_id,
@@ -329,12 +334,21 @@ def _quality_control_structured_output(
     structured_output: dict,
     evidence: list[EvidenceData],
     crop_id: str | None = None,
+    viability_category: str | None = None,
 ) -> dict:
     controlled = copy.deepcopy(structured_output)
     controlled["schema_version"] = "recommendation_structured_v1"
     controlled["quality_control"] = {
         "max_visible_recommendations": 5,
         "evidence_policy": "criterion_phase_or_practice_overlap_required",
+    }
+    if viability_category:
+        controlled["viability_category"] = viability_category
+
+    # ── Preserve LLM raw output for traceability ────────────────────────────
+    controlled["llm_raw_output"] = {
+        "summary": controlled.get("summary"),
+        "gap_recommendations_count": len(controlled.get("gap_recommendations") or []),
     }
 
     items = controlled.get("gap_recommendations") or []
@@ -345,18 +359,31 @@ def _quality_control_structured_output(
         checked = _quality_control_item(item, evidence, crop_id)
         normalized_items.append(checked)
 
-    normalized_items = _dedupe_mapping_suspects(normalized_items)
     normalized_items.sort(key=_recommendation_priority_key)
-    controlled["gap_recommendations"] = normalized_items
+
+    # ── Separate suspects: they must NOT appear in gap_recommendations ───────
+    suspect_items = _dedupe_mapping_suspects(
+        [it for it in normalized_items if it.get("criterion_mapping_suspect")]
+    )
+    actionable_items = [it for it in normalized_items if not it.get("criterion_mapping_suspect")]
+
+    controlled["gap_recommendations"] = actionable_items
+    controlled["pending_methodological_validation"] = suspect_items
+
     controlled["visible_gap_keys"] = [
         str(item.get("gap_key") or "")
-        for item in _visible_recommendation_items(normalized_items, limit=5)
+        for item in actionable_items[:5]
         if item.get("gap_key")
     ]
-    if len(normalized_items) > 5:
+    if len(actionable_items) > 5:
         limitation = "Se muestran como maximo 5 recomendaciones priorizadas por severidad y evidencia."
         current = str(controlled.get("overall_limitations") or "").strip()
         controlled["overall_limitations"] = f"{current} {limitation}".strip()
+
+    # ── Programmatic summary when suspects present (no LLM text for actions) ─
+    if suspect_items:
+        controlled["summary"] = _generate_qc_summary(viability_category, actionable_items, suspect_items)
+
     return controlled
 
 
@@ -364,6 +391,8 @@ def _quality_control_item(item: dict, evidence: list[EvidenceData], crop_id: str
     checked = dict(item)
     checked.setdefault("evidence_used", [])
     checked["evidence_status"] = "compatible"
+
+    _normalize_limitations_field(checked)
 
     _rewrite_unsafe_clay_recommendation(checked)
     _rewrite_unsafe_thermal_recommendation(checked, crop_id)
@@ -402,7 +431,7 @@ def _quality_control_item(item: dict, evidence: list[EvidenceData], crop_id: str
         )
         return checked
 
-    if _has_suspect_mandarina_cold_mapping(checked, crop_id):
+    if _has_suspect_hydric_as_altitude(checked):
         checked["criterion_mapping_suspect"] = True
         checked["evidence_status"] = "insuficiente"
         checked["confidence"] = "baja"
@@ -410,30 +439,14 @@ def _quality_control_item(item: dict, evidence: list[EvidenceData], crop_id: str
         checked["rationale"] = None
         checked["evidence_used"] = []
         checked["mapping_validation_note"] = (
-            "El criterio riesgo_frio durante induccion floral en mandarina aparece con direccion above_optimum. "
-            "VIA debe validar si representa insuficiencia de frio inductivo y no un riesgo de frio."
+            "Los valores observados y el limite optimo de este criterio son consistentes con altitud "
+            "(msnm), no con deficit hidrico (mm). Requiere revision del mapeo en el rulebook: "
+            "verificar si este criterion_id corresponde a aptitud_altitudinal u otro criterio "
+            "topografico antes de emitir recomendaciones."
         )
         checked["limitations"] = _append_limitation(
             checked.get("limitations"),
-            "riesgo_frio/above_optimum en induccion floral de mandarina requiere validacion de mapeo.",
-        )
-        return checked
-
-    if _has_suspect_hydric_mapping(checked):
-        checked["criterion_mapping_suspect"] = True
-        checked["evidence_status"] = "insuficiente"
-        checked["confidence"] = "baja"
-        checked["recommendation"] = None
-        checked["rationale"] = None
-        checked["evidence_used"] = []
-        checked["mapping_validation_note"] = (
-            "El criterio presenta una direccion inconsistente: el valor observado supera el limite "
-            "optimo en una variable denominada deficit hidrico. VIA debe revisar el mapeo del "
-            "criterio antes de interpretar esta brecha o emitir una recomendacion."
-        )
-        checked["limitations"] = _append_limitation(
-            checked.get("limitations"),
-            "El criterio deficit_hidrico aparece con direccion above_optimum; VIA requiere revisar el mapeo antes de recomendar.",
+            "Posible mapeo incorrecto: valores en rango de altitud etiquetados como deficit hidrico.",
         )
         return checked
 
@@ -807,12 +820,15 @@ def _is_valid_llm_evidence_ref(ref: dict) -> bool:
     source_file_id = str(ref.get("source_file_id") or "").strip()
     fragment_id = str(ref.get("fragment_id") or "").strip()
     source_filename = str(ref.get("source_filename") or "").strip()
-    if not fragment_id and not source_file_id:
+    if not fragment_id and not source_file_id and not source_filename:
         return False
     if source_file_id and _is_placeholder_source_file_id(source_file_id):
         return False
     if source_filename and not _is_valid_corpus_filename(source_filename):
         return False
+    # Filename-only refs are accepted when the filename is a valid corpus file
+    if not fragment_id and not source_file_id:
+        return bool(source_filename)
     return True
 
 
@@ -908,27 +924,63 @@ def _is_soil_physical_item(item: dict) -> bool:
     )
 
 
-def _has_suspect_hydric_mapping(item: dict) -> bool:
+def _normalize_limitations_field(item: dict) -> None:
+    """Convert 'None'/'null'/'-' string values in limitations to actual None."""
+    raw = item.get("limitations")
+    if raw is None:
+        return
+    stripped = str(raw).strip().lower()
+    if stripped in ("none", "null", "n/a", "-", "", "no limitations", "no hay limitaciones"):
+        item["limitations"] = None
+
+
+def _has_suspect_hydric_as_altitude(item: dict) -> bool:
+    """True when a deficit_hidrico criterion has values in altitude range (msnm)."""
     criterion_name = _normalize_text(str(item.get("criterion_name") or item.get("criterion_id") or ""))
-    gap_direction = _normalize_text(str(item.get("gap_direction") or ""))
+    if "deficit_hidrico" not in criterion_name and "disponibilidad_hidrica" not in criterion_name:
+        return False
     observed = item.get("observed_value")
     optimal = item.get("optimal_limit")
-    if "deficit_hidrico" not in criterion_name:
+    if not isinstance(observed, (int, float)) or not isinstance(optimal, (int, float)):
         return False
-    if gap_direction != "above_optimum":
-        return False
-    if isinstance(observed, (int, float)) and isinstance(optimal, (int, float)):
-        return observed > optimal
-    return True
+    # Values in 800-4500 msnm range with an optimal also in altitude range
+    return 800.0 <= float(observed) <= 4_500.0 and 0 < float(optimal) <= 1_200.0
 
 
-def _has_suspect_mandarina_cold_mapping(item: dict, crop_id: str | None) -> bool:
-    if crop_id != "mandarina_murcott":
-        return False
-    criterion = _normalize_text(str(item.get("criterion_name") or item.get("criterion_id") or ""))
-    phase = _normalize_text(str(item.get("phase_name") or item.get("phase_id") or ""))
-    gap_direction = _normalize_text(str(item.get("gap_direction") or ""))
-    return "riesgo_frio" in criterion and "induccion" in phase and gap_direction == "above_optimum"
+def _generate_qc_summary(
+    viability_category: str | None,
+    actionable_items: list[dict],
+    suspect_items: list[dict],
+) -> str:
+    """Generate a deterministic, LLM-free summary when suspect criteria are present."""
+    viability = str(viability_category or "").upper()
+    if viability == "NO_VIABLE":
+        base = "El cultivo fue evaluado como NO VIABLE."
+    elif viability == "CONDICIONAL":
+        base = "El cultivo presenta viabilidad condicional."
+    elif viability == "VIABLE":
+        base = "El cultivo es viable bajo las condiciones evaluadas."
+    else:
+        base = "Evaluacion de viabilidad completada."
+
+    n_actionable = sum(1 for it in actionable_items if it.get("recommendation"))
+    parts = [base]
+    if n_actionable > 0:
+        parts.append(
+            f"Se identificaron {n_actionable} brecha(s) con recomendacion tecnica sustentada por evidencia documental."
+        )
+    suspect_names = list(dict.fromkeys(
+        str(it.get("criterion_name") or it.get("criterion_id") or "")
+        for it in suspect_items
+        if it.get("criterion_name") or it.get("criterion_id")
+    ))
+    names_str = ", ".join(suspect_names[:3]) if suspect_names else "criterios sin nombre"
+    parts.append(
+        f"{len(suspect_items)} criterio(s) pendiente(s) de validacion metodologica "
+        f"({names_str}): no se incluyen en las recomendaciones de manejo hasta que VIA "
+        "confirme el mapeo en el rulebook."
+    )
+    return " ".join(parts)
 
 
 def _has_suspect_heat_mapping(item: dict) -> bool:
@@ -1181,7 +1233,8 @@ def _render_soil_group_lines(lines: list[str], index: int, soil_items: list[dict
                 if fn and fn not in evidence_names:
                     evidence_names.append(fn)
     limitations = list(dict.fromkeys(
-        str(item["limitations"]) for item in soil_items if item.get("limitations")
+        str(item["limitations"]) for item in soil_items
+        if item.get("limitations") and str(item["limitations"]).strip().lower() not in ("none", "null", "")
     ))
     lines.append(f"{index}. Condicion fisica y organica del suelo (confianza: {group_confidence})")
     lines.append(f"Brechas detectadas: {', '.join(criterion_labels)}.")
@@ -1189,7 +1242,8 @@ def _render_soil_group_lines(lines: list[str], index: int, soil_items: list[dict
     if evidence_names:
         lines.append(f"Evidencia: {', '.join(dict.fromkeys(evidence_names))}.")
     for lim in limitations:
-        lines.append(f"Limitacion: {lim}")
+        if lim and str(lim).strip().lower() not in ("none", "null", ""):
+            lines.append(f"Limitacion: {lim}")
     lines.append("")
 
 
@@ -1211,7 +1265,7 @@ def _render_single_item_lines(lines: list[str], index: int, item: dict) -> None:
     if evidence_names:
         lines.append(f"Evidencia: {', '.join(dict.fromkeys(evidence_names))}.")
     limitations = item.get("limitations")
-    if limitations:
+    if limitations and str(limitations).strip().lower() not in ("none", "null", ""):
         lines.append(f"Limitacion: {limitations}")
     lines.append("")
 
@@ -1257,6 +1311,11 @@ def _render_visible_text(structured_output: dict, fallback_text: str) -> str:
         return fallback_text
     summary = str(structured_output.get("summary") or "").strip()
     items = structured_output.get("gap_recommendations") or []
+    # suspects live in their own key, not mixed into gap_recommendations
+    suspect_items: list[dict] = [
+        item for item in (structured_output.get("pending_methodological_validation") or [])
+        if isinstance(item, dict)
+    ]
     visible_keys = set(str(key) for key in structured_output.get("visible_gap_keys") or [])
     has_visible_selection = "visible_gap_keys" in structured_output
     if has_visible_selection:
@@ -1265,24 +1324,38 @@ def _render_visible_text(structured_output: dict, fallback_text: str) -> str:
             for item in items
             if str(item.get("gap_key") or "") in visible_keys
             or _is_soil_physical_item(item)
-            or item.get("criterion_mapping_suspect")
         ]
     actionable_items = [item for item in items if isinstance(item, dict) and item.get("recommendation")]
-    if items and not actionable_items:
-        summary = (
-            "No se pudo emitir una recomendacion tecnica confiable porque la evidencia recuperada "
-            "no fue suficiente o no fue compatible con las brechas detectadas."
-        )
-    if not summary and not items:
+    viability = str(structured_output.get("viability_category") or "").upper()
+    if items and not actionable_items and not suspect_items:
+        if viability == "CONDICIONAL":
+            summary = (
+                "El cultivo presenta viabilidad condicional. No fue posible emitir recomendaciones "
+                "tecnicas sustentadas para las brechas detectadas porque la evidencia recuperada no "
+                "fue compatible o los criterios requieren validacion metodologica previa. "
+                "Se recomienda: (1) validar en campo los criterios senalados como pendientes; "
+                "(2) realizar analisis de suelo y evaluacion de condiciones microlocales; "
+                "(3) consultar con tecnico agronomico especializado antes de implementar el cultivo."
+            )
+        elif viability == "NO_VIABLE":
+            summary = (
+                "El cultivo es NO VIABLE bajo las condiciones evaluadas. Los criterios con brechas "
+                "estructurales dominantes no pueden corregirse con manejo agronomico. "
+                "No se genera plan de instalacion ni de manejo productivo."
+            )
+        else:
+            summary = (
+                "No se pudo emitir una recomendacion tecnica confiable porque la evidencia recuperada "
+                "no fue suficiente o no fue compatible con las brechas detectadas."
+            )
+    if not summary and not items and not suspect_items:
         return fallback_text
     lines = ["# Recomendacion tecnica agricola", ""]
     if summary:
         lines += ["## Resumen", summary, ""]
-    if items:
+    if items or suspect_items:
         lines += ["## Recomendaciones priorizadas", ""]
         soil_items, other_items = _split_soil_items(items)
-        suspect_items = [item for item in other_items if item.get("criterion_mapping_suspect")]
-        other_items = [item for item in other_items if not item.get("criterion_mapping_suspect")]
         render_queue: list[tuple[str, object]] = []
         if soil_items:
             render_queue.append(("soil_group", soil_items))

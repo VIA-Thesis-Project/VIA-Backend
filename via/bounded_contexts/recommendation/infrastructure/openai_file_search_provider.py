@@ -12,12 +12,17 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 from via.bounded_contexts.recommendation.application.ports import (
     RecommendationDraftContext,
 )
+from via.bounded_contexts.recommendation.domain.value_objects import RecommendationDomainError
 
 INSUFFICIENT_EVIDENCE_MSG = (
     "No se encontró evidencia documental suficiente para sustentar "
@@ -343,8 +348,12 @@ SUPPORTED_CROPS = frozenset(
 )
 
 
-class OpenAIFileSearchError(RuntimeError):
-    """Raised when the OpenAI File Search provider cannot return a valid draft."""
+class OpenAIFileSearchError(RecommendationDomainError):
+    """Raised when the OpenAI File Search provider cannot return a valid draft.
+
+    Inherits from RecommendationDomainError so the message service writes a
+    RECOMENDACION_FALLIDA event instead of letting the relay worker retry.
+    """
 
 
 @dataclass(frozen=True)
@@ -357,6 +366,7 @@ class OpenAIFileSearchConfig:
     prompt_version: str
     timeout_seconds: int
     vector_store_map: dict[str, str]
+    max_output_tokens: int | None = None
 
 
 @dataclass
@@ -408,6 +418,7 @@ class IOpenAIResponsesClient(Protocol):
         max_num_results: int,
         include: list[str],
         timeout: int,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Call Responses API and return raw response as a plain dict."""
 
@@ -442,6 +453,7 @@ class OpenAIFileSearchDraftingProvider:
         system_prompt = _build_system_prompt(self._config.prompt_version)
         user_prompt = _build_user_prompt(context)
 
+        _t_start = time.perf_counter()
         raw = self._client.create_response(
             model=self._config.model,
             input_messages=[
@@ -452,9 +464,34 @@ class OpenAIFileSearchDraftingProvider:
             max_num_results=self._config.max_num_results,
             include=["file_search_call.results"],
             timeout=self._config.timeout_seconds,
+            max_output_tokens=self._config.max_output_tokens,
         )
+        _t_api = time.perf_counter() - _t_start
 
+        _t_parse_start = time.perf_counter()
         text, fs_call_id, results, filenames, warnings = _parse_response(raw)
+        _t_parse = time.perf_counter() - _t_parse_start
+
+        _usage = raw.get("usage") or {}
+        _prompt_tokens = _usage.get("input_tokens", "?")
+        _completion_tokens = _usage.get("output_tokens", "?")
+        _system_prompt_chars = len(system_prompt)
+        _user_prompt_chars = len(user_prompt)
+        logger.info(
+            "[VIA-RAG-LATENCY] crop=%s | t_api=%.3fs | t_parse=%.4fs | "
+            "n_results=%d | prompt_tokens=%s | completion_tokens=%s | "
+            "system_chars=%d | user_chars=%d | model=%s | "
+            "note=t_api includes file_search+generation (not separable without streaming)",
+            crop_id,
+            _t_api,
+            _t_parse,
+            len(results),
+            _prompt_tokens,
+            _completion_tokens,
+            _system_prompt_chars,
+            _user_prompt_chars,
+            self._config.model,
+        )
         structured_output = _parse_structured_output(text, warnings)
         if structured_output is not None:
             text = _render_structured_output(structured_output)
@@ -534,31 +571,23 @@ def _build_system_prompt(prompt_version: str) -> str:
         "herbicidas, LMR o periodos de carencia salvo que la brecha sea sanitaria.\n"
         f'- Si File Search no recupera evidencia para una brecha, declara: "{INSUFFICIENT_EVIDENCE_MSG}"\n\n'
         "FORMATO DE SALIDA OBLIGATORIO — responde SOLO con JSON valido, sin Markdown, "
-        "sin texto antes ni despues. Contrato:\n"
+        "sin texto antes ni despues. Objetivo de concision: toda la respuesta en menos de 900 tokens. Contrato:\n"
         "{\n"
         '  "schema_version": "recommendation_structured_v1",\n'
-        '  "summary": "...",\n'
-        '  "overall_limitations": "...",\n'
+        '  "summary": "1-2 oraciones: condicion de viabilidad y prioridad principal de manejo.",\n'
+        '  "overall_limitations": "1 oracion sobre restricciones generales, o null.",\n'
         '  "gap_recommendations": [\n'
         "    {\n"
-        '      "gap_key": "criterion_name|phase_name|observed|optimal|gap",\n'
-        '      "criterion_id": "...",\n'
+        '      "gap_key": "criterion_name|phase_name",\n'
         '      "criterion_name": "...",\n'
         '      "criterion_label": "...",\n'
         '      "criterion_group": "...",\n'
-        '      "unit": "...",\n'
-        '      "phase_id": "...",\n'
         '      "phase_name": "...",\n'
         '      "gap_direction": "below_optimum|above_optimum|at_optimum",\n'
         '      "severity": "baja|media|alta|sin_brecha",\n'
-        '      "observed_value": 0,\n'
-        '      "optimal_limit": 0,\n'
-        '      "gap_value": 0,\n'
-        '      "recommendation": "... o null si no hay evidencia suficiente",\n'
-        '      "rationale": "... o null",\n'
-        '      "evidence_used": [{"source_file_id": "...", "source_filename": "...", "source_locator": "archivo.md > Nombre de seccion (null para PDFs; para .md curados indica la seccion mas relevante)", "quote_summary": "...extrae LA ORACION O PARRAFO del fragmento mas directamente relacionado con criterion_name y phase_name — NO el inicio del chunk..."}],\n'
-        '      "confidence": "baja|media|alta",\n'
-        '      "limitations": "..."\n'
+        '      "recommendation": "Accion concreta y especifica para reducir esta brecha (1-2 oraciones). Null si no hay evidencia suficiente.",\n'
+        '      "evidence_used": [{"source_filename": "nombre_archivo.md_o_pdf"}],\n'
+        '      "confidence": "baja|media|alta"\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -571,7 +600,6 @@ def _build_user_prompt(context: RecommendationDraftContext) -> str:
     result = context.crop_result
 
     grouped_gaps = _group_gaps_for_prompt(result.gaps)
-    gaps_text = "\n".join(_format_gap_group(group) for group in grouped_gaps) or "- Sin brechas calculadas."
 
     limiting_factors_text = (
         "\n".join(
@@ -587,22 +615,105 @@ def _build_user_prompt(context: RecommendationDraftContext) -> str:
         or "- Sin factores limitantes activados."
     )
 
-    return (
+    header = (
         "DATOS CALCULADOS POR VIA — solo leer, no modificar:\n"
         f"- evaluation_id: {context.evaluation_id}\n"
         f"- crop_id: {result.crop_id}\n"
         f"- score_calculado: {result.score}\n"
         f"- rank_position_calculado: {result.rank_position}\n"
         f"- calc_condition: {result.calc_condition}\n"
-        f"- viability_category_calculada: {result.viability_category}\n\n"
-        "Brechas agrónomicas calculadas por VIA (agrupadas semánticamente; no recalcular):\n"
-        f"{gaps_text}\n\n"
+        f"- viability_category_calculada: {result.viability_category}\n"
+    )
+
+    if context.gap_analysis is not None:
+        gaps_section = _format_gap_analysis_section(context.gap_analysis)
+        drafting_instruction = _drafting_instruction_for_viability(result.viability_category)
+    else:
+        gaps_text = "\n".join(_format_gap_group(g) for g in grouped_gaps) or "- Sin brechas calculadas."
+        gaps_section = f"Brechas agronómicas calculadas por VIA (agrupadas semánticamente; no recalcular):\n{gaps_text}"
+        drafting_instruction = (
+            "Redacta la recomendación técnica agrícola usando la evidencia "
+            "recuperada por File Search para sustentar cada brecha listada. "
+            "Mapea cada acción recomendada a la brecha, fase y evidencia usada."
+        )
+
+    return (
+        f"{header}\n"
+        f"{gaps_section}\n\n"
         "Factores limitantes calculados por VIA:\n"
         f"{limiting_factors_text}\n\n"
         "Consultas semánticas sugeridas para File Search:\n"
         f"{_semantic_search_queries(result.crop_id, grouped_gaps)}\n\n"
         "Ruteo documental preferido si los archivos curated existen en el vector store:\n"
         f"{_curated_routing_hints(result.crop_id, grouped_gaps)}\n\n"
+        f"{drafting_instruction}"
+    )
+
+
+def _format_gap_analysis_section(gap_analysis: Any) -> str:
+    """Render a structured gap analysis block for the LLM prompt."""
+    lines: list[str] = [
+        "ANÁLISIS DE BRECHAS (calculado determinísticamente por VIA — no recalcular):",
+        f"- interpretacion_viabilidad: {gap_analysis.viability_interpretation}",
+        f"- total_criterios_con_brecha: {gap_analysis.total_criteria_with_gaps}",
+        f"- estructurales_no_corregibles: {gap_analysis.structural_count}",
+        f"- mitigables: {gap_analysis.mitigable_count}",
+        f"- corregibles: {gap_analysis.correctable_count}",
+        f"- revision_calidad_datos: {gap_analysis.data_quality_count}",
+    ]
+    if gap_analysis.ruling_structural_barriers:
+        barriers = ", ".join(gap_analysis.ruling_structural_barriers)
+        lines.append(f"- barreras_estructurales_dominantes: {barriers}")
+
+    lines.append("\nGrupos de brechas priorizados (orden descendente de prioridad):")
+    for i, group in enumerate(gap_analysis.gap_groups, 1):
+        occurrences_text = "; ".join(
+            f"fase={o.phase_name or o.phase_id} observado={o.observed_value} brecha={o.gap_value} severidad={o.severity or 'DESCONOCIDA'}"
+            for o in group.occurrences
+        )
+        lines.append(
+            f"  [{i}] criterio_id={group.criterion_id}; "
+            f"nombre={group.criterion_name or 'DESCONOCIDO'}; "
+            f"label={group.criterion_label or 'DESCONOCIDO'}; "
+            f"grupo={group.criterion_group or 'DESCONOCIDO'}; "
+            f"unidad={group.unit or 'DESCONOCIDA'}; "
+            f"clase={group.gap_class}; "
+            f"corregibilidad={group.correctability}; "
+            f"recurrencia={group.recurrence}; "
+            f"prioridad={group.priority_score}; "
+            f"observado_rep={group.representative_observed}; "
+            f"optimo_rep={group.representative_optimal}; "
+            f"brecha_rep={group.representative_gap}; "
+            f"direccion_rep={group.representative_direction or 'DESCONOCIDA'}; "
+            f"severidad_rep={group.representative_severity or 'DESCONOCIDA'}; "
+            f"revision_rulebook={group.rulebook_review_required}; "
+            f"ocurrencias=[{occurrences_text}]"
+        )
+        if group.data_quality_flags:
+            for flag in group.data_quality_flags:
+                lines.append(f"      ⚠ CALIDAD_DE_DATOS: {flag}")
+
+    return "\n".join(lines)
+
+
+def _drafting_instruction_for_viability(viability_category: str) -> str:
+    if viability_category == "NO_VIABLE":
+        return (
+            "INSTRUCCIÓN PARA CULTIVO NO_VIABLE: "
+            "NO generes plan de instalación ni de manejo productivo. "
+            "Para cada barrera estructural dominante, indica brevemente por qué es una restricción no corregible y la fuente documental. "
+            "Sin diagnóstico extendido ni listas enumeradas."
+        )
+    if viability_category == "CONDICIONAL":
+        return (
+            "INSTRUCCIÓN PARA CULTIVO CONDICIONAL: "
+            "Genera gap_recommendations SOLO para las 5 brechas de mayor prioridad del listado (las primeras 5). "
+            "Para cada una, indica la acción concreta para reducirla y la fuente documental que la respalda. "
+            "Sin repetir el diagnóstico. Sin planes enumerados. Sin justificación extendida. "
+            "Si la brecha es STRUCTURAL_NOT_CORRECTABLE, escribe 'No corregible estructuralmente' en recommendation. "
+            "No afirmes que una brecha fue solventada si solo fue mitigada."
+        )
+    return (
         "Redacta la recomendación técnica agrícola usando la evidencia "
         "recuperada por File Search para sustentar cada brecha listada. "
         "Mapea cada acción recomendada a la brecha, fase y evidencia usada."
@@ -902,6 +1013,7 @@ class _RealOpenAIResponsesClient:
         max_num_results: int,
         include: list[str],
         timeout: int,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         try:
             from openai import OpenAI
@@ -912,6 +1024,9 @@ class _RealOpenAIResponsesClient:
             ) from exc
 
         client = OpenAI(api_key=self._oai_key, timeout=float(timeout))
+        extra: dict = {}
+        if max_output_tokens is not None:
+            extra["max_output_tokens"] = max_output_tokens
         try:
             response = client.responses.create(
                 model=model,
@@ -924,6 +1039,7 @@ class _RealOpenAIResponsesClient:
                     }
                 ],
                 include=include,
+                **extra,
             )
         except Exception as exc:
             raise OpenAIFileSearchError(

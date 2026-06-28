@@ -55,6 +55,7 @@ class RulebookCommandService:
         if self._unit_of_work is not None:
             with self._unit_of_work as uow:
                 rulebook = self._load_rulebook(uow.rulebooks, rulebook_id)
+                rulebook.validate_semantic()
                 uow.rulebooks.deactivate_active_for_crop(rulebook.crop_id)
                 rulebook.publish()
                 uow.rulebooks.save(rulebook)
@@ -63,6 +64,7 @@ class RulebookCommandService:
 
         repository = self._require_repository()
         rulebook = self._load_rulebook(repository, rulebook_id)
+        rulebook.validate_semantic()
         repository.deactivate_active_for_crop(rulebook.crop_id)
         rulebook.publish()
         repository.save(rulebook)

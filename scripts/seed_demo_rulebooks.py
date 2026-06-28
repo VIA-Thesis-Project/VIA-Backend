@@ -25,7 +25,7 @@ from via.bounded_contexts.rulebook_management.domain.criterion import Criterion
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import ExtractionBinding, PhaseRequirement
 from via.bounded_contexts.rulebook_management.domain.phenological_phase import PhenologicalPhase
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.domain.value_objects import MembershipFunction, TemporalPeriod
+from via.bounded_contexts.rulebook_management.domain.value_objects import InterventionClass, MembershipFunction, TemporalPeriod
 from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import SqlAlchemyRulebookRepository
 
 
@@ -232,6 +232,7 @@ def build_demo_rulebook_parts(
             penalty_factor=None,
             ahp_weight=1.0 / len(DEMO_CRITERIA),
             doc_source=DEMO_DOC_SOURCE,
+            intervention_class=InterventionClass.MITIGABLE,
             technical_notes=(
                 f"{DEMO_VERSION_NOTE}. Simulated criterion mapped to "
                 f"{DEMO_EXTRACTION_BINDING.variable_name}; not real agronomic data."

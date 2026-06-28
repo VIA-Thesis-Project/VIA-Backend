@@ -16,6 +16,7 @@ from via.bounded_contexts.rulebook_management.domain.phenological_phase import P
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
     CriticalPolicy,
+    InterventionClass,
     MembershipFunction,
     RulebookStatus,
     TemporalPeriod,
@@ -70,6 +71,7 @@ class SqlAlchemyRulebookRepository(IRulebookRepository):
                     critical_policy=criterion.critical_policy.value if criterion.critical_policy else None,
                     penalty_factor=_decimal_or_none(criterion.penalty_factor),
                     ahp_weight=Decimal(str(criterion.ahp_weight)),
+                    intervention_class=criterion.intervention_class.value,
                     doc_source=criterion.doc_source,
                     technical_notes=criterion.technical_notes,
                 )
@@ -178,6 +180,7 @@ class SqlAlchemyRulebookRepository(IRulebookRepository):
                     critical_policy=CriticalPolicy(model.critical_policy) if model.critical_policy else None,
                     penalty_factor=_float_or_none(model.penalty_factor),
                     ahp_weight=float(model.ahp_weight),
+                    intervention_class=InterventionClass(model.intervention_class),
                     doc_source=model.doc_source,
                     technical_notes=model.technical_notes,
                 )

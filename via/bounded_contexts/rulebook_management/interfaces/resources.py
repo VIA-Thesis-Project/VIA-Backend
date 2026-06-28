@@ -38,6 +38,7 @@ class CriterionResource(BaseModel):
     critical_policy: str | None = None
     penalty_factor: float | None = None
     ahp_weight: float
+    intervention_class: str
     doc_source: str | None = None
     technical_notes: str | None = None
 

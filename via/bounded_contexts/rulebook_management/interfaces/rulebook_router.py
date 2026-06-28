@@ -17,6 +17,7 @@ from via.bounded_contexts.rulebook_management.domain.phenological_phase import P
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.value_objects import (
     CriticalPolicy,
+    InterventionClass,
     MembershipFunction,
     RulebookValidationError,
     TemporalPeriod,
@@ -133,6 +134,7 @@ def _criterion_from_resource(resource: CriterionResource) -> Criterion:
         critical_policy=policy,
         penalty_factor=resource.penalty_factor,
         ahp_weight=resource.ahp_weight,
+        intervention_class=InterventionClass(resource.intervention_class),
         doc_source=resource.doc_source,
         technical_notes=resource.technical_notes,
     )
@@ -203,6 +205,7 @@ def _criterion_to_resource(criterion: Criterion) -> CriterionResource:
         critical_policy=criterion.critical_policy.value if criterion.critical_policy else None,
         penalty_factor=criterion.penalty_factor,
         ahp_weight=criterion.ahp_weight,
+        intervention_class=criterion.intervention_class.value,
         doc_source=criterion.doc_source,
         technical_notes=criterion.technical_notes,
     )
