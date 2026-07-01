@@ -21,21 +21,22 @@ MAIZ AMARILLO DURO — fuentes documentales
   INIA    Variedades INIA-605, INIA-609, INIA-619
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITERIOS (12) — Variables GEE extractables
+CRITERIOS (13) — Variables GEE extractables
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  aptitud_termica           temperatura_media_c         ERA5-Land   0.14
+  aptitud_termica           temperatura_media_c         ERA5-Land   0.13
   riesgo_frio               temperatura_minima_c        ERA5-Land   0.06
-  riesgo_calor              temperatura_maxima_c        ERA5-Land   0.09
-  disponibilidad_hidrica    precipitacion_acumulada_mm  CHIRPS      0.13
+  riesgo_calor              temperatura_maxima_c        ERA5-Land   0.08
+  disponibilidad_hidrica    precipitacion_acumulada_mm  CHIRPS      0.12
   deficit_hidrico           deficit_hidrico_mm          ERA5 deriv  0.11
-  aptitud_altitudinal       elevacion_m                 SRTM        0.13
+  aptitud_altitudinal       elevacion_m                 SRTM        0.12
   aptitud_topografica       pendiente_grados            SRTM        0.06
   reaccion_suelo_ph         ph_suelo                    OLM         0.09
   contenido_arcilla         arcilla_pct                 OLM         0.07
   contenido_arena           arena_pct                   OLM         0.05
   carbono_organico_suelo    carbono_organico_suelo      OLM         0.05
-  cobertura_actual_auxiliar ndvi                        Sentinel-2  0.02
-  Suma = 1.00
+  salinidad_suelo           conductividad_electrica     SoilGrids   0.05
+  cobertura_actual_auxiliar ndvi                        Sentinel-2  0.01
+  Suma = 1.00  (pesos indicativos maiz_amarillo_duro; varían por cultivo)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FASES maiz_amarillo_duro (7 fases, MIDAGRI/SENAMHI escala VE-R6)
@@ -245,6 +246,7 @@ _CRITERIA = (
     "contenido_arcilla",
     "contenido_arena",
     "carbono_organico_suelo",
+    "salinidad_suelo",
     "cobertura_actual_auxiliar",
 )
 
@@ -267,6 +269,7 @@ _INTERVENTION_CLASS: dict[str, InterventionClass] = {
     "contenido_arcilla":         InterventionClass.CORRECTABLE,
     "contenido_arena":           InterventionClass.CORRECTABLE,
     "carbono_organico_suelo":    InterventionClass.CORRECTABLE,
+    "salinidad_suelo":           InterventionClass.CORRECTABLE,
     "cobertura_actual_auxiliar": InterventionClass.STRUCTURAL,
 }
 
@@ -281,6 +284,7 @@ _OLM_PH   = "OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02"
 _OLM_CLAY = "OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02"
 _OLM_SAND = "OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02"
 _OLM_OC   = "OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02"
+_ISRIC_ECE = "projects/soilgrids-isric/ece"  # SoilGrids ECe — verificar con gee_smoke_test
 
 
 # ─── Extraction bindings (idénticos al seed de viabilidad potencial) ──────────
@@ -351,6 +355,12 @@ _BINDING_OC = ExtractionBinding(
     temporal_resolution="static", scale=250.0,
     reducer="mean", aggregation_method="mean", fallback_allowed=True,
 )
+_BINDING_CE = ExtractionBinding(
+    variable_name="conductividad_electrica_ds_m", dataset_key=_ISRIC_ECE,
+    band="ece_0-5cm_mean", unit="dS/m",
+    temporal_resolution="static", scale=250.0,
+    reducer="mean", aggregation_method="mean", fallback_allowed=True,
+)
 _BINDING_NDVI = ExtractionBinding(
     variable_name="ndvi", dataset_key=_S2,
     band="ndvi", unit="index",
@@ -370,6 +380,7 @@ _CRITERION_BINDING: dict[str, ExtractionBinding] = {
     "contenido_arcilla":         _BINDING_CLAY,
     "contenido_arena":           _BINDING_SAND,
     "carbono_organico_suelo":    _BINDING_OC,
+    "salinidad_suelo":           _BINDING_CE,
     "cobertura_actual_auxiliar": _BINDING_NDVI,
 }
 
@@ -423,17 +434,18 @@ _MAD_PHASE_WEIGHTS: tuple[float, ...] = (
 
 # Pesos AHP por criterio (deben sumar 1.0)
 _MAD_AHP_WEIGHTS: dict[str, float] = {
-    "aptitud_termica":           0.14,  # 24-30°C optimo; critico por fase
+    "aptitud_termica":           0.13,  # 24-30°C optimo; critico por fase
     "riesgo_frio":               0.06,  # min 18°C floración (SENASA)
-    "riesgo_calor":              0.09,  # >30°C afecta raices y polen (SENASA)
-    "disponibilidad_hidrica":    0.13,  # Lima irrigada; a=0 no penaliza secano
-    "deficit_hidrico":           0.11,  # deficit tipico Lima; compensado por riego
-    "aptitud_altitudinal":       0.13,  # 0-600 msnm valles costenos (MIDAGRI)
+    "riesgo_calor":              0.08,  # >30°C afecta raices y polen (SENASA)
+    "disponibilidad_hidrica":    0.12,  # Lima irrigada; a=0 no penaliza secano
+    "deficit_hidrico":           0.10,  # deficit tipico Lima; compensado por riego
+    "aptitud_altitudinal":       0.12,  # 0-600 msnm valles costenos (MIDAGRI)
     "aptitud_topografica":       0.06,  # mecanizacion e irrigacion
     "reaccion_suelo_ph":         0.09,  # conflicto: SENASA 5.5-6.0 / MIDAGRI 6.1-7.8
     "contenido_arcilla":         0.07,  # franco, franco arcilloso (SENASA/MIDAGRI)
     "contenido_arena":           0.05,  # franco arcillo arenoso tolerable
     "carbono_organico_suelo":    0.05,  # "alto contenido MO" (MIDAGRI >4%)
+    "salinidad_suelo":           0.05,  # FAO Paper 29: umbral ECe 1.7 dS/m; costa irrigada
     "cobertura_actual_auxiliar": 0.02,  # auxiliar NDVI; no determina viabilidad
 }
 
@@ -527,6 +539,11 @@ _MAD_SAND = _same((15, 35, 65, 80), len(_MAD_PHASES))
 # Lima costera tipicamente ~3-5 g/kg OC; ese rango estara en zona baja del trapecio
 _MAD_OC = _same((2, 10, 40, 70), len(_MAD_PHASES))
 
+# salinidad_suelo (conductividad_electrica ECe dS/m — SoilGrids ISRIC)
+# Maiz: sensitivo a sal; FAO Paper 29: umbral ECe=1.7 dS/m, rendimiento cae ~12%/dS/m extra
+# Valles costeros Lima pueden tener ligera salinidad (<2 dS/m en suelos irrigados)
+_MAD_CE = _same((0.0, 0.0, 1.7, 4.0), len(_MAD_PHASES))
+
 # cobertura_actual_auxiliar (ndvi Sentinel-2)
 # Auxiliar de contexto; amplio trapecio para no colapsar por barbecho o suelo preparado
 _MAD_NDVI = _same((-0.10, 0.05, 0.90, 1.00), len(_MAD_PHASES))
@@ -571,17 +588,18 @@ _MCT_PHASE_WEIGHTS: tuple[float, ...] = (
 
 # Pesos AHP por criterio
 _MCT_AHP_WEIGHTS: dict[str, float] = {
-    "aptitud_termica":           0.13,  # 25-30°C optimo general (SENASA)
-    "riesgo_frio":               0.11,  # CLAVE: noches frias inducen floracion
+    "aptitud_termica":           0.12,  # 25-30°C optimo general (SENASA)
+    "riesgo_frio":               0.10,  # CLAVE: noches frias inducen floracion
     "riesgo_calor":              0.08,  # >35°C danino; otoño calido reduce induccion
-    "disponibilidad_hidrica":    0.12,  # frutal perenne; irrigado; agua constante
-    "deficit_hidrico":           0.10,  # complejo: bueno en induccion, malo en floracion
-    "aptitud_altitudinal":       0.11,  # valles costenos 0-800 msnm (Sayan ~300m)
+    "disponibilidad_hidrica":    0.11,  # frutal perenne; irrigado; agua constante
+    "deficit_hidrico":           0.09,  # complejo: bueno en induccion, malo en floracion
+    "aptitud_altitudinal":       0.10,  # valles costenos 0-800 msnm (Sayan ~300m)
     "aptitud_topografica":       0.08,  # drenaje importante; barreras de viento
     "reaccion_suelo_ph":         0.07,  # rango sin fuente explícita; moderado
     "contenido_arcilla":         0.07,  # suelo suelto (SENASA); no exceso arcilla
     "contenido_arena":           0.06,  # drenaje; franco a franco arenoso
     "carbono_organico_suelo":    0.05,  # materia organica para perenne
+    "salinidad_suelo":           0.05,  # FAO Paper 29: citricos muy sensibles ECe <1.7 dS/m
     "cobertura_actual_auxiliar": 0.02,  # auxiliar NDVI
 }
 
@@ -677,6 +695,11 @@ _MCT_SAND = _same((15, 25, 65, 80), len(_MCT_PHASES))
 # carbono_organico_suelo — frutal perenne requiere buen sustrato organico
 _MCT_OC = _same((2, 8, 40, 70), len(_MCT_PHASES))
 
+# salinidad_suelo (ECe dS/m — SoilGrids ISRIC)
+# Citricos: muy sensibles a sal; FAO Paper 29: umbral ECe=1.7 dS/m, ~16%/dS/m extra
+# Mandarina mas sensible que naranja; suelos costeros irrigados con riesgo sodico
+_MCT_CE = _same((0.0, 0.0, 1.7, 3.5), len(_MCT_PHASES))
+
 # cobertura_actual_auxiliar (ndvi)
 _MCT_NDVI = _same((-0.10, 0.05, 0.90, 1.00), len(_MCT_PHASES))
 
@@ -721,17 +744,18 @@ _MRC_PHASE_WEIGHTS: tuple[float, ...] = (
 
 # Pesos AHP por criterio
 _MRC_AHP_WEIGHTS: dict[str, float] = {
-    "aptitud_termica":           0.14,  # 24-28°C critico; mas estrecho que maiz/mandarina
+    "aptitud_termica":           0.13,  # 24-28°C critico; mas estrecho que maiz/mandarina
     "riesgo_frio":               0.07,  # T min bajas reducen fructificacion
-    "riesgo_calor":              0.10,  # >28°C restringe flores y reduce botones (La Libertad)
-    "disponibilidad_hidrica":    0.11,  # "suministro frecuente" pero sin encharcamiento
-    "deficit_hidrico":           0.10,  # estres en floracion/fecundacion reduce cuajado
-    "aptitud_altitudinal":       0.11,  # flavicarpa 0-1000 msnm; tolera hasta 1300m
+    "riesgo_calor":              0.09,  # >28°C restringe flores y reduce botones (La Libertad)
+    "disponibilidad_hidrica":    0.10,  # "suministro frecuente" pero sin encharcamiento
+    "deficit_hidrico":           0.09,  # estres en floracion/fecundacion reduce cuajado
+    "aptitud_altitudinal":       0.10,  # flavicarpa 0-1000 msnm; tolera hasta 1300m
     "aptitud_topografica":       0.08,  # drenaje CRITICO; suelo pesado -> fusariosis
     "reaccion_suelo_ph":         0.09,  # EXPLICITO: 5.5-7.0 (Gerencia La Libertad)
     "contenido_arcilla":         0.09,  # suelos pesados -> fusariosis (La Libertad)
     "contenido_arena":           0.06,  # franco arenoso; buen drenaje
     "carbono_organico_suelo":    0.03,  # "suelos fertiles" sin rango especifico
+    "salinidad_suelo":           0.05,  # FAO Paper 29: umbral ECe ~1.5 dS/m; moderadamente sensible
     "cobertura_actual_auxiliar": 0.02,  # auxiliar NDVI
 }
 
@@ -841,6 +865,11 @@ _MRC_SAND = _same((25, 40, 75, 85), len(_MRC_PHASES))
 # "suelos fertiles" sin rango especifico documentado; moderado
 _MRC_OC = _same((2, 6, 35, 65), len(_MRC_PHASES))
 
+# salinidad_suelo (ECe dS/m — SoilGrids ISRIC)
+# Maracuya: moderadamente sensible; FAO Paper 29: umbral ECe ~1.5 dS/m
+# Prefiere suelos con buena lixiviacion; salinidad alta agrava fusariosis
+_MRC_CE = _same((0.0, 0.0, 1.5, 3.5), len(_MRC_PHASES))
+
 # cobertura_actual_auxiliar (ndvi)
 _MRC_NDVI = _same((-0.10, 0.05, 0.90, 1.00), len(_MRC_PHASES))
 
@@ -888,17 +917,18 @@ _PHH_PHASE_WEIGHTS: tuple[float, ...] = (
 
 # Pesos AHP por criterio
 _PHH_AHP_WEIGHTS: dict[str, float] = {
-    "aptitud_termica":           0.15,  # 20-25°C dia optimo (SENAMHI); estrecho en floracion
+    "aptitud_termica":           0.14,  # 20-25°C dia optimo (SENAMHI); estrecho en floracion
     "riesgo_frio":               0.08,  # Hass: daño a -1.1°C; 10°C noche fecundacion (SENAMHI)
-    "riesgo_calor":              0.11,  # >35°C daña floracion/fructificacion (SENAMHI)
-    "disponibilidad_hidrica":    0.10,  # disponibilidad hidrica permanente; goteo recomendado
-    "deficit_hidrico":           0.11,  # estres en floracion/cuajado = caida de flores y frutos
+    "riesgo_calor":              0.10,  # >35°C daña floracion/fructificacion (SENAMHI)
+    "disponibilidad_hidrica":    0.09,  # disponibilidad hidrica permanente; goteo recomendado
+    "deficit_hidrico":           0.10,  # estres en floracion/cuajado = caida de flores y frutos
     "aptitud_altitudinal":       0.08,  # contextual: 0-2700m SENAMHI; no descarte para Lima
-    "aptitud_topografica":       0.10,  # drenaje CRITICO; pendiente modera encharcamiento
+    "aptitud_topografica":       0.09,  # drenaje CRITICO; pendiente modera encharcamiento
     "reaccion_suelo_ph":         0.07,  # tres rangos conflictivos; peso moderado
     "contenido_arcilla":         0.09,  # pesado -> mal drenaje -> Phytophthora cinnamomi
     "contenido_arena":           0.05,  # franco-arcilloso arenoso (SENAMHI); drenaje
     "carbono_organico_suelo":    0.04,  # "fertilidad media a alta"; 30 kg MO/planta (MIDAGRI)
+    "salinidad_suelo":           0.05,  # FAO Paper 29: aguacate muy sensible ECe <1.5 dS/m
     "cobertura_actual_auxiliar": 0.02,  # auxiliar NDVI
 }
 
@@ -1010,6 +1040,11 @@ _PHH_SAND = _same((20, 35, 70, 85), len(_PHH_PHASES))
 # "fertilidad media a alta apta"; 30 kg/planta compost+guano en instalacion (MIDAGRI)
 _PHH_OC = _same((3, 8, 40, 70), len(_PHH_PHASES))
 
+# salinidad_suelo (ECe dS/m — SoilGrids ISRIC)
+# Aguacate/palta: muy sensible a sal; FAO Paper 29: umbral ECe=1.5 dS/m, ~19%/dS/m extra
+# Lima costera: suelos irrigados con acumulacion de sales; lavado necesario si CE>2
+_PHH_CE = _same((0.0, 0.0, 1.5, 3.0), len(_PHH_PHASES))
+
 # cobertura_actual_auxiliar (ndvi)
 _PHH_NDVI = _same((-0.10, 0.05, 0.90, 1.00), len(_PHH_PHASES))
 
@@ -1066,17 +1101,18 @@ _SGV_PHASE_WEIGHTS: tuple[float, ...] = (
 
 # Pesos AHP por criterio
 _SGV_AHP_WEIGHTS: dict[str, float] = {
-    "aptitud_termica":           0.16,  # por fase: reposo frio / floracion 18-24°C / maduracion 20°C
+    "aptitud_termica":           0.15,  # por fase: reposo frio / floracion 18-24°C / maduracion 20°C
     "riesgo_frio":               0.08,  # <15.5°C reduce floracion (SENAMHI); dormancia DESEADA
-    "riesgo_calor":              0.12,  # >30°C reduce floracion; >34°C quema hojas y racimos
-    "disponibilidad_hidrica":    0.09,  # disponibilidad permanente; irrigado
-    "deficit_hidrico":           0.10,  # floracion/cuajado CRITICOS; reposo: leve deficit ok
+    "riesgo_calor":              0.11,  # >30°C reduce floracion; >34°C quema hojas y racimos
+    "disponibilidad_hidrica":    0.08,  # disponibilidad permanente; irrigado
+    "deficit_hidrico":           0.09,  # floracion/cuajado CRITICOS; reposo: leve deficit ok
     "aptitud_altitudinal":       0.07,  # vid crece en muchas altitudes Peru; contextual
     "aptitud_topografica":       0.08,  # drenaje critico; pendiente favorece drenaje
     "reaccion_suelo_ph":         0.06,  # SENAMHI: 5.5-8.5 (muy amplio); peso moderado
-    "contenido_arcilla":         0.09,  # arenoso/franco arenoso (SENAMHI); arcilla -> hongos
+    "contenido_arcilla":         0.08,  # arenoso/franco arenoso (SENAMHI); arcilla -> hongos
     "contenido_arena":           0.07,  # "arenoso / franco arenoso" SENAMHI; mayor peso que otros
     "carbono_organico_suelo":    0.06,  # fertilidad; 5-10 kg compost plantacion (AgroRural)
+    "salinidad_suelo":           0.05,  # FAO Paper 29: vid moderadamente sensible ECe ~1.5 dS/m
     "cobertura_actual_auxiliar": 0.02,  # auxiliar NDVI
 }
 
@@ -1205,6 +1241,11 @@ _SGV_SAND = _same((35, 50, 80, 90), len(_SGV_PHASES))
 # "fertilidad del suelo"; 5-10 kg compost en plantacion (AgroRural/MIDAGRI)
 _SGV_OC = _same((2, 5, 35, 65), len(_SGV_PHASES))
 
+# salinidad_suelo (ECe dS/m — SoilGrids ISRIC)
+# Vid: moderadamente sensible; FAO Paper 29: umbral ECe ~1.5 dS/m, ~9.6%/dS/m extra
+# Mas tolerante que citricos/palta; algunos portainjertos incrementan tolerancia
+_SGV_CE = _same((0.0, 0.0, 1.5, 5.0), len(_SGV_PHASES))
+
 # cobertura_actual_auxiliar (ndvi)
 _SGV_NDVI = _same((-0.10, 0.05, 0.90, 1.00), len(_SGV_PHASES))
 
@@ -1223,6 +1264,7 @@ _TRAP: dict[tuple[str, str], tuple] = {
     ("maiz_amarillo_duro", "contenido_arcilla"):         _MAD_CLAY,
     ("maiz_amarillo_duro", "contenido_arena"):           _MAD_SAND,
     ("maiz_amarillo_duro", "carbono_organico_suelo"):    _MAD_OC,
+    ("maiz_amarillo_duro", "salinidad_suelo"):           _MAD_CE,
     ("maiz_amarillo_duro", "cobertura_actual_auxiliar"): _MAD_NDVI,
 
     # ── Mandarina Murcott ─────────────────────────────────────────────────────
@@ -1237,6 +1279,7 @@ _TRAP: dict[tuple[str, str], tuple] = {
     ("mandarina_murcott", "contenido_arcilla"):         _MCT_CLAY,
     ("mandarina_murcott", "contenido_arena"):           _MCT_SAND,
     ("mandarina_murcott", "carbono_organico_suelo"):    _MCT_OC,
+    ("mandarina_murcott", "salinidad_suelo"):           _MCT_CE,
     ("mandarina_murcott", "cobertura_actual_auxiliar"): _MCT_NDVI,
 
     # ── Maracuya Criolla Amarilla ─────────────────────────────────────────────
@@ -1251,6 +1294,7 @@ _TRAP: dict[tuple[str, str], tuple] = {
     ("maracuya_criolla_amarilla", "contenido_arcilla"):         _MRC_CLAY,
     ("maracuya_criolla_amarilla", "contenido_arena"):           _MRC_SAND,
     ("maracuya_criolla_amarilla", "carbono_organico_suelo"):    _MRC_OC,
+    ("maracuya_criolla_amarilla", "salinidad_suelo"):           _MRC_CE,
     ("maracuya_criolla_amarilla", "cobertura_actual_auxiliar"): _MRC_NDVI,
 
     # ── Palta Hass ────────────────────────────────────────────────────────────
@@ -1265,6 +1309,7 @@ _TRAP: dict[tuple[str, str], tuple] = {
     ("palta_hass", "contenido_arcilla"):         _PHH_CLAY,
     ("palta_hass", "contenido_arena"):           _PHH_SAND,
     ("palta_hass", "carbono_organico_suelo"):    _PHH_OC,
+    ("palta_hass", "salinidad_suelo"):           _PHH_CE,
     ("palta_hass", "cobertura_actual_auxiliar"): _PHH_NDVI,
 
     # ── Uva de Mesa Sweet Globe ───────────────────────────────────────────────
@@ -1279,6 +1324,7 @@ _TRAP: dict[tuple[str, str], tuple] = {
     ("uva_de_mesa_sweet_globe", "contenido_arcilla"):         _SGV_CLAY,
     ("uva_de_mesa_sweet_globe", "contenido_arena"):           _SGV_SAND,
     ("uva_de_mesa_sweet_globe", "carbono_organico_suelo"):    _SGV_OC,
+    ("uva_de_mesa_sweet_globe", "salinidad_suelo"):           _SGV_CE,
     ("uva_de_mesa_sweet_globe", "cobertura_actual_auxiliar"): _SGV_NDVI,
 }
 
@@ -1323,6 +1369,91 @@ _DOC_SOURCES: dict[str, str] = {
     "maracuya_criolla_amarilla": _MRC_DOC_SOURCE,
     "palta_hass":                _PHH_DOC_SOURCE,
     "uva_de_mesa_sweet_globe":   _SGV_DOC_SOURCE,
+}
+
+_MAD_SOIL_TECHNICAL_NOTES: dict[str, str] = {
+    "contenido_arcilla": (
+        "Trapecio actual maiz_amarillo_duro=(5,15,40,60), sin cambio de valores. "
+        "No se hallo en fuentes peruanas (MIDAGRI, INIA) ni internacionales "
+        "(FAO/GAEZ) un rango cuantitativo (%) recomendado para maiz. Las fuentes "
+        "describen textura por clases cualitativas: \"franco\", \"franco arcilloso "
+        "arenoso\", \"franco arcilloso\" (MIDAGRI Ficha Agroclimatica MAD pag.2; "
+        "Manual Tecnico INIA pag.59). El trapecio actual es una traduccion "
+        "operacional de estas clases texturales a rangos USDA/FAO estandar, NO un "
+        "umbral cuantitativo citado de fuente maicera especifica. Dato de calicata "
+        "La Molina 2007 (SENAMHI, pag.45: arena 36%, limo 46%, arcilla 18%) es una "
+        "medicion puntual de perfil de suelo, no un rango recomendado, y no se usa "
+        "como umbral."
+    ),
+    "contenido_arena": (
+        "Trapecio actual maiz_amarillo_duro=(15,35,65,80), sin cambio de valores. "
+        "No se hallo en fuentes peruanas (MIDAGRI, INIA) ni internacionales "
+        "(FAO/GAEZ) un rango cuantitativo (%) recomendado para maiz. Las fuentes "
+        "describen textura por clases cualitativas: \"franco\", \"franco arcilloso "
+        "arenoso\", \"franco arcilloso\" (MIDAGRI Ficha Agroclimatica MAD pag.2; "
+        "Manual Tecnico INIA pag.59). El trapecio actual es una traduccion "
+        "operacional de estas clases texturales a rangos USDA/FAO estandar, NO un "
+        "umbral cuantitativo citado de fuente maicera especifica. Dato de calicata "
+        "La Molina 2007 (SENAMHI, pag.45: arena 36%, limo 46%, arcilla 18%) es una "
+        "medicion puntual de perfil de suelo, no un rango recomendado, y no se usa "
+        "como umbral."
+    ),
+    "carbono_organico_suelo": (
+        "Trapecio actual maiz_amarillo_duro=(2,10,40,70) g/kg COS, sin cambio de "
+        "valores. Anclas verificadas: MIDAGRI Ficha Agroclimatica MAD (Peru): "
+        "materia organica alta >4%. INIA Manejo Agronomico Selva Baja (Peru): "
+        "materia organica 2,0-4,0%. Discrepancia entre fuentes peruanas "
+        "posiblemente por diferencia agroecologica costa/selva; MAD costa se "
+        "referencia principalmente a MIDAGRI. Conversion MO->COS via factor 1,72 "
+        "(Fertiberia, fuente general de analisis de suelo, no especifica de maiz). "
+        "Puntos no cubiertos exactamente por fuente se mantienen por consistencia "
+        "operativa."
+    ),
+}
+
+_MCT_SOIL_TECHNICAL_NOTES: dict[str, str] = {
+    "contenido_arcilla": (
+        "Trapecio actual mandarina_murcott=(5,10,35,55), sin cambio de valores. "
+        "Ancla citricola verificada: evitar arcilla superior a 35% segun ILSA, "
+        "\"Como cultivar y fertilizar los citricos\" (Italia), que indica evitar "
+        "suelos con valores de arcilla superiores al 35%. El rango estructural "
+        "12-18% aparece en fuente general de suelos/Infoagro y en la sintesis "
+        "tecnica, pero no se hallo como umbral citricola primario. Los puntos "
+        "intermedios 5,10 y 55 se adoptan por consistencia con clasificacion "
+        "textural estandar y manejo de drenaje, sin fuente cuantitativa primaria "
+        "que los fije exactamente. Contexto: fuentes internacionales de "
+        "citricultura/suelo (Italia, Espana, Florida); no se hallo fuente "
+        "cuantitativa peruana de textura para citricos. Referencia general "
+        "adoptada por convergencia documental."
+    ),
+    "contenido_arena": (
+        "Trapecio actual mandarina_murcott=(15,25,65,80), sin cambio de valores. "
+        "No se hallo en el corpus una fuente primaria citricola que fije "
+        "textualmente 23-86% de arena ni marginal >90% como rango cuantitativo "
+        "para mandarina/citricos. La referencia textual verificada es cualitativa: "
+        "citricos prefieren suelos francos, franco-arenosos o franco-arcillosos, "
+        "bien drenados. Los puntos del trapecio se adoptan por consistencia con "
+        "clasificacion textural estandar y necesidad de drenaje, no por un umbral "
+        "cuantitativo primario exacto. Contexto: fuentes internacionales de "
+        "citricultura/suelo (Espana, Italia, Florida y documentos generales); no "
+        "se hallo fuente cuantitativa peruana de textura para citricos. Referencia "
+        "general adoptada por convergencia documental."
+    ),
+    "carbono_organico_suelo": (
+        "Trapecio actual mandarina_murcott=(2,8,40,70) g/kg COS, sin cambio de "
+        "valores. Anclas verificadas: materia organica no inferior al 2% en ILSA, "
+        "\"Como cultivar y fertilizar los citricos\" (Italia), y aporte de materia "
+        "organica si el suelo no llega al 2% en BOE 137/2004 (Espana). Conversion "
+        "verificada en Fertiberia/Analisis de Tierra Frutales: la materia organica "
+        "contiene aprox. 58% de carbono y el carbono organico se calcula dividiendo "
+        "la materia organica por 1,72. Por esa conversion, 2% MO equivale aprox. a "
+        "1,16% COS, es decir 11,6 g/kg COS. No se hallo fuente primaria que fije "
+        "exactamente todos los puntos 2,8,40,70 g/kg; se mantienen por consistencia "
+        "operativa del modelo y clasificacion general de fertilidad. Contexto: "
+        "fuentes internacionales (Espana, Italia, Florida); no se hallo fuente "
+        "cuantitativa peruana de carbono organico para citricos. Referencia general "
+        "adoptada por convergencia documental."
+    ),
 }
 
 
@@ -1440,6 +1571,12 @@ def _build_criterion(
             "no es un impedimento estructural real de la parcela (cf. aptitud_altitudinal). "
             "Deuda de modelado: considerar valor NON_ACTIONABLE en iteracion futura."
         )
+    elif criterion_name == "salinidad_suelo":
+        role_note = (
+            "criterio edafico estatico (SoilGrids ISRIC ECe, ece_0-5cm_mean, ~250m). "
+            "Umbral FAO Paper 29 (Ayers & Westcott 1985); valores en dS/m. "
+            "Sin politica critica; costa irrigada Peru tipicamente <4 dS/m."
+        )
     elif criterion_name in _SOIL_CRITERIA:
         role_note = (
             f"criterio edafico estatico (OpenLandMap ~250m, topsoil_0_30cm_mean). "
@@ -1457,6 +1594,12 @@ def _build_criterion(
     else:
         role_note = "criterio climatico (ERA5-Land / CHIRPS)."
 
+    extra_technical_note = ""
+    if crop_id == "maiz_amarillo_duro" and criterion_name in _MAD_SOIL_TECHNICAL_NOTES:
+        extra_technical_note = f" {_MAD_SOIL_TECHNICAL_NOTES[criterion_name]}"
+    if crop_id == "mandarina_murcott" and criterion_name in _MCT_SOIL_TECHNICAL_NOTES:
+        extra_technical_note = f" {_MCT_SOIL_TECHNICAL_NOTES[criterion_name]}"
+
     return Criterion(
         id=_stable_id(crop_id, "criterion", criterion_name),
         name=criterion_name,
@@ -1470,6 +1613,7 @@ def _build_criterion(
             f"prod_rulebook_v1 {crop_id}. "
             f"Criterio '{criterion_name}' -> {binding.variable_name} ({binding.dataset_key}). "
             f"{role_note}"
+            f"{extra_technical_note}"
         ),
     )
 

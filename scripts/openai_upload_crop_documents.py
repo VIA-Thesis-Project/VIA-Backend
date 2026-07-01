@@ -74,7 +74,6 @@ CURATED_FILENAMES = (
     "material_varietal_portainjerto.md",
     "fitosanitario_exportacion_trazabilidad.md",
     "certificacion_exportacion.md",
-    "metadata_manifest.json",
 )
 ARTIFACT_BASE = pathlib.Path(__file__).parents[1] / "artifacts" / "openai_file_search"
 POLL_INTERVAL_SECONDS = 5

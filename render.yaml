@@ -26,7 +26,7 @@ services:
       - key: SEED_ADMIN_PASSWORD
         sync: false
       - key: LLM_DRAFTING_PROVIDER
-        value: "openai_file_search"
+        value: "tavily_rag"
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_RAG_MODEL
@@ -35,6 +35,20 @@ services:
         value: "15"
       - key: OPENAI_FILE_SEARCH_PROMPT_VERSION
         value: "v2"
+      - key: OPENAI_WEB_SEARCH_ENABLED
+        value: "true"
+      - key: OPENAI_WEB_SEARCH_ALLOWED_DOMAINS
+        value: "midagri.gob.pe,senasa.gob.pe,inia.gob.pe,senamhi.gob.pe,fao.org"
+      - key: OPENAI_WEB_SEARCH_CONTEXT_SIZE
+        value: "medium"
+      - key: OPENAI_WEB_SEARCH_COUNTRY
+        value: "PE"
+      - key: OPENAI_WEB_SEARCH_REGION
+        value: "Lima"
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: JINAREADER_ENABLED
+        value: "true"
       - key: VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID
         sync: false
       - key: VIA_VECTOR_STORE_PALTA_HASS_ID
