@@ -56,6 +56,20 @@ DEFAULT_GEMINI_API_MAX_OUTPUT_TOKENS = 2048
 DEFAULT_OPENAI_RAG_MODEL = "gpt-4o-mini"
 DEFAULT_OPENAI_FILE_SEARCH_MAX_RESULTS = 10
 DEFAULT_OPENAI_FILE_SEARCH_PROMPT_VERSION = "v2"
+DEFAULT_OPENAI_WEB_SEARCH_ENABLED = False
+DEFAULT_OPENAI_WEB_SEARCH_CONTEXT_SIZE = "medium"
+DEFAULT_OPENAI_WEB_SEARCH_ALLOWED_DOMAINS = (
+    "midagri.gob.pe,senasa.gob.pe,inia.gob.pe,senamhi.gob.pe,fao.org"
+)
+DEFAULT_OPENAI_WEB_SEARCH_COUNTRY = "PE"
+DEFAULT_OPENAI_WEB_SEARCH_REGION = "Lima"
+DEFAULT_JINA_READER_ENABLED = False
+DEFAULT_JINA_READER_TIMEOUT_SECONDS = 25
+DEFAULT_JINA_READER_MAX_URLS = 3
+DEFAULT_JINA_READER_MIN_CHARS = 300
+DEFAULT_JINA_READER_MAX_CHARS_PER_DOC = 8_000
+DEFAULT_TAVILY_MAX_RESULTS = 20
+DEFAULT_TAVILY_SEARCH_DEPTH = "advanced"
 
 
 @dataclass(frozen=True)
@@ -105,6 +119,20 @@ class Settings:
     openai_rag_model: str | None
     openai_file_search_max_results: int
     openai_file_search_prompt_version: str
+    openai_web_search_enabled: bool
+    openai_web_search_allowed_domains: tuple[str, ...]
+    openai_web_search_context_size: str
+    openai_web_search_country: str | None
+    openai_web_search_region: str | None
+    jina_reader_enabled: bool
+    jina_reader_api_key: str | None
+    jina_reader_timeout_seconds: int
+    jina_reader_max_urls: int
+    jina_reader_min_chars: int
+    jina_reader_max_chars_per_doc: int
+    tavily_api_key: str | None
+    tavily_max_results: int
+    tavily_search_depth: str
     openai_vector_store_maiz_amarillo_duro_id: str | None
     openai_vector_store_palta_hass_id: str | None
     openai_vector_store_mandarina_murcott_id: str | None
@@ -213,6 +241,24 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             "OPENAI_FILE_SEARCH_PROMPT_VERSION",
             DEFAULT_OPENAI_FILE_SEARCH_PROMPT_VERSION,
         ),
+        openai_web_search_enabled=_read_bool(
+            source,
+            "OPENAI_WEB_SEARCH_ENABLED",
+            DEFAULT_OPENAI_WEB_SEARCH_ENABLED,
+        ),
+        openai_web_search_allowed_domains=_read_csv_tuple(
+            source,
+            "OPENAI_WEB_SEARCH_ALLOWED_DOMAINS",
+            DEFAULT_OPENAI_WEB_SEARCH_ALLOWED_DOMAINS,
+        ),
+        openai_web_search_context_size=(
+            source.get("OPENAI_WEB_SEARCH_CONTEXT_SIZE", "").strip().lower()
+            or DEFAULT_OPENAI_WEB_SEARCH_CONTEXT_SIZE
+        ),
+        openai_web_search_country=_read_optional_text(source, "OPENAI_WEB_SEARCH_COUNTRY")
+        or DEFAULT_OPENAI_WEB_SEARCH_COUNTRY,
+        openai_web_search_region=_read_optional_text(source, "OPENAI_WEB_SEARCH_REGION")
+        or DEFAULT_OPENAI_WEB_SEARCH_REGION,
         openai_vector_store_maiz_amarillo_duro_id=_read_optional_text(
             source, "VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID"
         ),
@@ -227,6 +273,21 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ),
         openai_vector_store_uva_de_mesa_sweet_globe_id=_read_optional_text(
             source, "VIA_VECTOR_STORE_UVA_DE_MESA_SWEET_GLOBE_ID"
+        ),
+        jina_reader_enabled=_read_bool(source, "JINA_READER_ENABLED", DEFAULT_JINA_READER_ENABLED),
+        jina_reader_api_key=_read_optional_text(source, "JINA_READER_API_KEY"),
+        jina_reader_timeout_seconds=int(
+            source.get("JINA_READER_TIMEOUT_SECONDS", DEFAULT_JINA_READER_TIMEOUT_SECONDS)
+        ),
+        jina_reader_max_urls=int(source.get("JINA_READER_MAX_URLS", DEFAULT_JINA_READER_MAX_URLS)),
+        jina_reader_min_chars=int(source.get("JINA_READER_MIN_CHARS", DEFAULT_JINA_READER_MIN_CHARS)),
+        jina_reader_max_chars_per_doc=int(
+            source.get("JINA_READER_MAX_CHARS_PER_DOC", DEFAULT_JINA_READER_MAX_CHARS_PER_DOC)
+        ),
+        tavily_api_key=_read_optional_text(source, "TAVILY_API_KEY"),
+        tavily_max_results=int(source.get("TAVILY_MAX_RESULTS", DEFAULT_TAVILY_MAX_RESULTS)),
+        tavily_search_depth=(
+            source.get("TAVILY_SEARCH_DEPTH", "").strip().lower() or DEFAULT_TAVILY_SEARCH_DEPTH
         ),
     )
     validate_settings(settings)
@@ -287,10 +348,12 @@ def validate_settings(settings: Settings) -> None:
     if settings.gee_max_retries < 0:
         raise ConfigurationError("GEE_MAX_RETRIES must be >= 0")
     if settings.llm_drafting_provider not in {
-        "template", "local_http", "vertex_gemma", "gemini_api", "openai_file_search"
+        "template", "local_http", "vertex_gemma", "gemini_api",
+        "openai_file_search", "openai_web_search", "tavily_rag",
     }:
         raise ConfigurationError(
-            "LLM_DRAFTING_PROVIDER must be template, local_http, vertex_gemma, gemini_api or openai_file_search"
+            "LLM_DRAFTING_PROVIDER must be template, local_http, vertex_gemma, gemini_api, "
+            "openai_file_search, openai_web_search or tavily_rag"
         )
     if settings.llm_timeout_seconds <= 0:
         raise ConfigurationError("LLM_TIMEOUT_SECONDS must be positive")
@@ -325,11 +388,29 @@ def validate_settings(settings: Settings) -> None:
             raise ConfigurationError("GEMINI_API_MODEL is required when LLM_DRAFTING_PROVIDER=gemini_api")
     if settings.openai_file_search_max_results <= 0:
         raise ConfigurationError("OPENAI_FILE_SEARCH_MAX_RESULTS must be positive")
+    if settings.openai_web_search_context_size not in {"low", "medium", "high"}:
+        raise ConfigurationError("OPENAI_WEB_SEARCH_CONTEXT_SIZE must be low, medium or high")
     if settings.llm_drafting_provider == "openai_file_search":
         if not settings.openai_api_key:
             raise ConfigurationError("OPENAI_API_KEY is required when LLM_DRAFTING_PROVIDER=openai_file_search")
         if not settings.openai_rag_model:
             raise ConfigurationError("OPENAI_RAG_MODEL is required when LLM_DRAFTING_PROVIDER=openai_file_search")
+    if settings.llm_drafting_provider == "openai_web_search":
+        if not settings.openai_web_search_enabled:
+            raise ConfigurationError(
+                "OPENAI_WEB_SEARCH_ENABLED=true is required when LLM_DRAFTING_PROVIDER=openai_web_search"
+            )
+        if not settings.openai_api_key:
+            raise ConfigurationError("OPENAI_API_KEY is required when LLM_DRAFTING_PROVIDER=openai_web_search")
+        if not settings.openai_rag_model:
+            raise ConfigurationError("OPENAI_RAG_MODEL is required when LLM_DRAFTING_PROVIDER=openai_web_search")
+    if settings.llm_drafting_provider == "tavily_rag":
+        if not settings.tavily_api_key:
+            raise ConfigurationError("TAVILY_API_KEY is required when LLM_DRAFTING_PROVIDER=tavily_rag")
+        if not settings.openai_api_key:
+            raise ConfigurationError("OPENAI_API_KEY is required when LLM_DRAFTING_PROVIDER=tavily_rag")
+        if not settings.openai_rag_model:
+            raise ConfigurationError("OPENAI_RAG_MODEL is required when LLM_DRAFTING_PROVIDER=tavily_rag")
     if settings.gee_enabled:
         if not settings.gee_project:
             raise ConfigurationError("GEE_PROJECT is required when GEE_ENABLED=True")
@@ -365,6 +446,11 @@ def _read_bool(source: Mapping[str, str], key: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ConfigurationError(f"{key} must be a boolean")
+
+
+def _read_csv_tuple(source: Mapping[str, str], key: str, default: str) -> tuple[str, ...]:
+    raw_value = source.get(key, default)
+    return tuple(item.strip() for item in raw_value.split(",") if item.strip())
 
 
 def _read_optional_text(source: Mapping[str, str], key: str) -> str | None:

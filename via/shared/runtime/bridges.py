@@ -360,6 +360,8 @@ def _criterion_group(requirement: PhaseRequirement) -> str:
     ).lower()
     if any(term in source for term in ("temp", "precip", "rain", "clima", "chirps", "era5")):
         return "clima"
+    if any(term in source for term in ("ece", "conductividad", "salinity", "salinidad")):
+        return "salinidad"
     if any(term in source for term in ("soil", "ph", "arcilla", "arena", "carbon", "suelo")):
         return "suelo"
     if any(term in source for term in ("elevation", "altitud", "slope", "pendiente", "dem")):
