@@ -15,6 +15,8 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
     EvaluationQueryService,
 )
 from via.bounded_contexts.viability_evaluation.interfaces.resources import (
+    AgroenvVariableResponse,
+    AgroenvVectorResponse,
     CropResultResponse,
     EvaluationMcdaResultResponse,
     EvaluationStatusResponse,
@@ -133,6 +135,44 @@ def get_mcda_result(
     )
 
 
+@router.get("/{evaluation_id}/vector-agroambiental", response_model=AgroenvVectorResponse)
+def get_agroenv_vector(
+    evaluation_id: UUID,
+    query_service: EvaluationQueryService = Depends(get_evaluation_query_service),
+) -> AgroenvVectorResponse:
+    """Return the persisted GEE/agroenvironmental vector used by the evaluation."""
+
+    rm = query_service.get_agroenv_vector(evaluation_id)
+    if rm is None:
+        raise HTTPException(status_code=404, detail="Vector agroambiental no encontrado")
+
+    return AgroenvVectorResponse(
+        evaluation_id=rm.evaluation_id,
+        parcel_id=rm.parcel_id,
+        variables=[
+            AgroenvVariableResponse(
+                variable_name=v.variable_name,
+                criterion_id=v.criterion_id,
+                crop_id=v.crop_id,
+                phase_id=v.phase_id,
+                period_key=v.period_key,
+                value=v.value,
+                unit=v.unit,
+                status=v.status,
+                dataset_key=v.dataset_key,
+                band=v.band,
+                source=v.source,
+                criterion_name=v.criterion_name,
+                criterion_label=v.criterion_label,
+                criterion_group=v.criterion_group,
+                phase_name=v.phase_name,
+                intervention_class=v.intervention_class,
+            )
+            for v in rm.variables
+        ],
+    )
+
+
 # ─── private helpers ───────────────────────────────────────────────────────────
 
 
@@ -152,6 +192,12 @@ def _to_crop_responses(rm: EvaluationMcdaResultReadModel) -> list[CropResultResp
                     observed_value=g.observed_value,
                     optimal_limit=g.optimal_limit,
                     gap_value=g.gap_value,
+                    criterion_name=g.criterion_name,
+                    criterion_label=g.criterion_label,
+                    criterion_group=g.criterion_group,
+                    phase_name=g.phase_name,
+                    unit=g.unit,
+                    intervention_class=g.intervention_class,
                 )
                 for g in r.gaps
             ],
@@ -165,6 +211,12 @@ def _to_crop_responses(rm: EvaluationMcdaResultReadModel) -> list[CropResultResp
                     optimal_limit=lf.optimal_limit,
                     membership=lf.membership,
                     doc_source=lf.doc_source,
+                    criterion_name=lf.criterion_name,
+                    criterion_label=lf.criterion_label,
+                    criterion_group=lf.criterion_group,
+                    phase_name=lf.phase_name,
+                    unit=lf.unit,
+                    intervention_class=lf.intervention_class,
                 )
                 for lf in r.limiting_factors
             ],

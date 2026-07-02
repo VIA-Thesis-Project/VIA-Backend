@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from via.bounded_contexts.viability_evaluation.application.ports import (
+    AgroenvVectorReadModel,
     CropResultReadModel,
     EvaluationMcdaResultReadModel,
     EvaluationStatusReadModel,
@@ -23,6 +24,7 @@ MCDA_READY_STATUSES: frozenset[str] = frozenset({
 # Re-export read models so existing callers of query_service keep working.
 __all__ = [
     "MCDA_READY_STATUSES",
+    "AgroenvVectorReadModel",
     "CropResultReadModel",
     "EvaluationMcdaResultReadModel",
     "EvaluationStatusReadModel",
@@ -83,3 +85,10 @@ class EvaluationQueryService:
             status=snapshot.status,
             results=crop_results,
         )
+
+    def get_agroenv_vector(self, evaluation_id: UUID) -> AgroenvVectorReadModel | None:
+        """Return the persisted agroenvironmental vector for an evaluation."""
+
+        if self._port.find_saga_snapshot(evaluation_id) is None:
+            return None
+        return self._port.find_agroenv_vector(evaluation_id)
