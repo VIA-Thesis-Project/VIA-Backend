@@ -32,6 +32,12 @@ class GapReadModel:
     observed_value: float
     optimal_limit: float
     gap_value: float
+    criterion_name: str | None = None
+    criterion_label: str | None = None
+    criterion_group: str | None = None
+    phase_name: str | None = None
+    unit: str | None = None
+    intervention_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,12 @@ class LimitingFactorReadModel:
     optimal_limit: float
     membership: float
     doc_source: str | None
+    criterion_name: str | None = None
+    criterion_label: str | None = None
+    criterion_group: str | None = None
+    phase_name: str | None = None
+    unit: str | None = None
+    intervention_class: str | None = None
 
 
 @dataclass
@@ -82,6 +94,37 @@ class EvaluationMcdaResultReadModel:
     status: str
     results: list[CropResultReadModel] = field(default_factory=list)
     failure_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class AgroenvVariableReadModel:
+    """Persisted agroenvironmental variable with rulebook display metadata."""
+
+    variable_name: str
+    criterion_id: str
+    crop_id: str
+    phase_id: str
+    period_key: str
+    value: float | None
+    unit: str
+    status: str
+    dataset_key: str
+    band: str
+    source: str
+    criterion_name: str | None = None
+    criterion_label: str | None = None
+    criterion_group: str | None = None
+    phase_name: str | None = None
+    intervention_class: str | None = None
+
+
+@dataclass(frozen=True)
+class AgroenvVectorReadModel:
+    """Persisted agroenvironmental vector exposed by the query API."""
+
+    evaluation_id: UUID
+    parcel_id: UUID
+    variables: list[AgroenvVariableReadModel] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -170,3 +213,6 @@ class IEvaluationQueryPort(Protocol):
 
     def find_crop_results(self, evaluation_id: UUID) -> list[CropResultReadModel]:
         """Return all persisted crop results with gaps and limiting factors."""
+
+    def find_agroenv_vector(self, evaluation_id: UUID) -> AgroenvVectorReadModel | None:
+        """Return the persisted agroenvironmental vector, or None when absent."""
