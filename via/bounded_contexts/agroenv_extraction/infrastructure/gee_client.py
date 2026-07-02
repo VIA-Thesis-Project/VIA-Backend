@@ -71,6 +71,8 @@ class GeeExtractionClient(IExtractionClient):
                 # This is deterministic — retrying won't help. Return None so fallback_allowed handles it.
                 if _is_empty_collection_error(exc):
                     return None
+                if request.fallback_allowed and _is_missing_asset_error(exc):
+                    return None
                 last_error = exc
                 if attempt < attempts - 1:
                     self._sleep(min(2**attempt, 5))
@@ -142,6 +144,19 @@ def _is_empty_collection_error(exc: Exception) -> bool:
     """
     msg = str(exc)
     return "no bands" in msg.lower() or "Band pattern" in msg
+
+
+def _is_missing_asset_error(exc: Exception) -> bool:
+    """Return True for deterministic missing/inaccessible GEE assets."""
+
+    msg = str(exc).lower()
+    return (
+        (
+            ("not found" in msg or "does not exist" in msg)
+            and ("asset" in msg or "imagecollection" in msg or "image collection" in msg)
+        )
+        or "caller does not have access" in msg
+    )
 
 
 # ─── Extraction strategies ────────────────────────────────────────────────────

@@ -123,6 +123,23 @@ def test_retry_is_used_for_transient_errors() -> None:
     assert sleeps == [1]
 
 
+def test_missing_imagecollection_asset_with_fallback_returns_none_without_retry() -> None:
+    fake_ee = FakeEeModule(
+        error=RuntimeError(
+            "ImageCollection.load: ImageCollection asset 'projects/soilgrids-isric/ece' "
+            "not found (does not exist or caller does not have access)."
+        )
+    )
+    sleeps: list[float] = []
+    client = GeeExtractionClient(settings=_gee_settings(max_retries=3), ee_module=fake_ee, sleep_func=sleeps.append)
+
+    result = client.extract_variable(_request())
+
+    assert result is None
+    assert fake_ee.reduce_region_attempts == 1
+    assert sleeps == []
+
+
 def test_domain_does_not_import_earth_engine() -> None:
     offenders: list[str] = []
     for path in DOMAIN.rglob("*.py"):
@@ -136,11 +153,17 @@ def test_domain_does_not_import_earth_engine() -> None:
 class FakeEeModule:
     """Small Earth Engine module fake that records API calls."""
 
-    def __init__(self, value: float | None = 1.0, transient_failures: int = 0) -> None:
+    def __init__(
+        self,
+        value: float | None = 1.0,
+        transient_failures: int = 0,
+        error: Exception | None = None,
+    ) -> None:
         """Create fake EE state."""
 
         self.value = value
         self.transient_failures = transient_failures
+        self.error = error
         self.reduce_region_attempts = 0
         self.credentials_calls: list[tuple[str | None, str | None]] = []
         self.initialize_calls: list[tuple[str, str | None]] = []
@@ -311,6 +334,8 @@ class FakeImage:
 
         self._ee.reduce_region_attempts += 1
         self.reduce_region_kwargs = kwargs
+        if self._ee.error is not None:
+            raise self._ee.error
         if self._ee.reduce_region_attempts <= self._ee.transient_failures:
             raise RuntimeError("temporary gee failure")
         return FakeRegion(self._ee.value)
