@@ -396,9 +396,9 @@ def start_evaluation(
 ) -> dict:
     """POST /evaluaciones and return the response body. Exits on failure."""
     url = f"{base_url}/evaluaciones"
+    # requested_by ya no es parte del contrato: el API lo toma del token.
     payload = {
         "parcel_id": parcel_id,
-        "requested_by": user_id,
         "crop_candidates": crop_ids,
         "temporal_window": {"start_date": start_date, "end_date": end_date},
     }

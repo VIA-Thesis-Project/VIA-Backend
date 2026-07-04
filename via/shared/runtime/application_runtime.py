@@ -179,12 +179,17 @@ def build_recommendation_consumer(
 _recommendation_consumer = build_recommendation_consumer
 
 
-def _extraction_consumer(session_factory: sessionmaker[Session], settings: Settings) -> AgroenvExtractionConsumer:
+def _extraction_consumer(
+    session_factory: sessionmaker[Session],
+    settings: Settings | None = None,
+) -> AgroenvExtractionConsumer:
     """Build the extraction consumer, using the real GEE client when GEE is enabled."""
 
-    if settings.gee_enabled:
+    resolved_settings = settings or get_settings()
+
+    if resolved_settings.gee_enabled:
         from via.bounded_contexts.agroenv_extraction.infrastructure.gee_client import GeeExtractionClient
-        extraction_client: IExtractionClient = GeeExtractionClient(settings=settings)
+        extraction_client: IExtractionClient = GeeExtractionClient(settings=resolved_settings)
     else:
         extraction_client = RuntimeGeeExtractionClient()
 
@@ -257,6 +262,94 @@ def build_recommendation_drafting_provider(settings: Settings) -> IRecommendatio
                 max_output_tokens=1600,
             )
         )
+    if settings.llm_drafting_provider == "openai_web_search":
+        from via.bounded_contexts.recommendation.infrastructure.openai_web_search_provider import (
+            OpenAIWebSearchConfig,
+            OpenAIWebSearchDraftingProvider,
+        )
+
+        jina_client = None
+        if settings.jina_reader_enabled:
+            from via.bounded_contexts.recommendation.infrastructure.jina_reader_client import (
+                JinaReaderClient,
+                JinaReaderConfig,
+            )
+            jina_client = JinaReaderClient(
+                JinaReaderConfig(
+                    timeout_seconds=settings.jina_reader_timeout_seconds,
+                    max_chars_per_doc=settings.jina_reader_max_chars_per_doc,
+                    min_chars_threshold=settings.jina_reader_min_chars,
+                    max_urls=settings.jina_reader_max_urls,
+                    api_key=settings.jina_reader_api_key,
+                )
+            )
+
+        return OpenAIWebSearchDraftingProvider(
+            OpenAIWebSearchConfig(
+                api_key=str(settings.openai_api_key),
+                model=str(settings.openai_rag_model),
+                prompt_version=settings.openai_file_search_prompt_version,
+                timeout_seconds=settings.llm_timeout_seconds,
+                allowed_domains=settings.openai_web_search_allowed_domains,
+                search_context_size=settings.openai_web_search_context_size,
+                user_country=settings.openai_web_search_country,
+                user_region=settings.openai_web_search_region,
+                max_output_tokens=1600,
+            ),
+            jina_client=jina_client,
+        )
+    if settings.llm_drafting_provider == "tavily_rag":
+        from via.bounded_contexts.recommendation.infrastructure.tavily_search_client import (
+            TavilySearchClient,
+            TavilySearchConfig,
+        )
+        from via.bounded_contexts.recommendation.infrastructure.tavily_rag_provider import (
+            TavilyRagConfig,
+            TavilyRagDraftingProvider,
+        )
+
+        tavily_client = TavilySearchClient(
+            TavilySearchConfig(
+                api_key=str(settings.tavily_api_key),
+                max_results=settings.tavily_max_results,
+                search_depth=settings.tavily_search_depth,
+                include_domains=settings.openai_web_search_allowed_domains,
+                timeout_seconds=settings.llm_timeout_seconds,
+            )
+        )
+
+        jina_client = None
+        if settings.jina_reader_enabled:
+            from via.bounded_contexts.recommendation.infrastructure.jina_reader_client import (
+                JinaReaderClient,
+                JinaReaderConfig,
+            )
+            jina_client = JinaReaderClient(
+                JinaReaderConfig(
+                    timeout_seconds=settings.jina_reader_timeout_seconds,
+                    max_chars_per_doc=settings.jina_reader_max_chars_per_doc,
+                    min_chars_threshold=settings.jina_reader_min_chars,
+                    max_urls=settings.jina_reader_max_urls,
+                    api_key=settings.jina_reader_api_key,
+                )
+            )
+
+        return TavilyRagDraftingProvider(
+            TavilyRagConfig(
+                openai_api_key=str(settings.openai_api_key),
+                openai_model=str(settings.openai_rag_model),
+                prompt_version=settings.openai_file_search_prompt_version,
+                timeout_seconds=settings.llm_timeout_seconds,
+                tavily_api_key=str(settings.tavily_api_key),
+                tavily_max_results=settings.tavily_max_results,
+                tavily_search_depth=settings.tavily_search_depth,
+                include_domains=settings.openai_web_search_allowed_domains,
+                max_output_tokens=1600,
+            ),
+            tavily_client=tavily_client,
+            jina_client=jina_client,
+        )
+
     return LocalHttpLlmDraftingProvider(
         LocalHttpLlmConfig(
             endpoint=str(settings.llm_local_http_endpoint),

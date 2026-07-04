@@ -56,7 +56,7 @@ El flujo se inicia cuando llega un mensaje `GenerarRecomendacionSolicitada` al `
 |---|---|
 | `evaluation_id` | UUID de la evaluación MCDA ya completada |
 | `crop_id` | Cultivo específico (opcional; si hay ranking usa rank=1) |
-| `max_fragments` | Máximo de fragmentos de evidencia a recuperar |
+| `max_fragments` | Máximo de fragmentos de evidencia a recuperar. Default operativo: 8 fragmentos visibles para QC/recomendación. |
 
 El servicio verifica idempotencia (tabla `processed_messages`) antes de procesar, y envuelve todo en una transacción unitaria.
 
@@ -207,6 +207,8 @@ El puerto `IDocumentEvidencePort.search_evidence(crop_id, gaps, max_fragments)` 
 
 En producción, la implementación delega a la OpenAI Responses API con **File Search**, pero esta búsqueda ocurre dentro del Paso 3 (el provider hace RAG internamente). El resultado se extrae luego del trace del provider.
 
+Nota operativa: `max_fragments=8` es el piso global para los cultivos soportados. No aumenta `max_num_results` de OpenAI; solo evita que evidencia curated relevante quede fuera del QC cuando el ranking de File Search viene comprimido por consultas multitemáticas.
+
 ```python
 @dataclass(frozen=True)
 class EvidenceData:
@@ -223,6 +225,26 @@ class EvidenceData:
 ---
 
 ## Paso 3 — Borrador LLM (`OpenAIFileSearchDraftingProvider`)
+
+VIA soporta dos modos OpenAI para recomendaciones:
+
+| Provider | Uso recomendado | Fuente |
+|---|---|---|
+| `openai_file_search` | Modo tesis/prod controlado | Vector stores por cultivo con documentos `curated` y PDFs |
+| `openai_web_search` | Modo laboratorio/extra personal | Web Search en vivo con dominios oficiales preferidos en prompt |
+
+El modo web se activa solo con:
+
+```env
+LLM_DRAFTING_PROVIDER=openai_web_search
+OPENAI_WEB_SEARCH_ENABLED=true
+OPENAI_WEB_SEARCH_ALLOWED_DOMAINS=midagri.gob.pe,senasa.gob.pe,inia.gob.pe,senamhi.gob.pe,fao.org
+OPENAI_WEB_SEARCH_CONTEXT_SIZE=medium
+OPENAI_WEB_SEARCH_COUNTRY=PE
+OPENAI_WEB_SEARCH_REGION=Lima
+```
+
+Nota: `openai_web_search` no reemplaza el flujo reproducible de tesis. Sus resultados dependen de fuentes web disponibles al momento de consulta y se guardan con `provider=openai_web_search`. Los dominios configurados se envían como restricción/preferencia del prompt; con el modelo actual (`gpt-4o-mini`) la API Web Search rechaza `filters`, por lo que no se aplican como filtro duro de herramienta.
 
 ### 3.1 Contexto enviado
 

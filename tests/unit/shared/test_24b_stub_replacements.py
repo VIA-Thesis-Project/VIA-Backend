@@ -72,6 +72,6 @@ def fake_session_factory():
 
 @pytest.fixture()
 def fake_settings():
-    from via.config import get_settings
+    from via.config import load_settings
 
-    return get_settings()
+    return load_settings({})

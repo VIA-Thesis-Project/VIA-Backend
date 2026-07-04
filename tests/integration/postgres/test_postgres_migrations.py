@@ -8,10 +8,13 @@ import pytest
 from alembic import command as alembic_command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 
-_EXPECTED_HEAD = "20260614_0002"
 _REPO_ROOT = pathlib.Path(__file__).parents[3]
+# Derived from the migrations directory so this test can never go stale when
+# a new revision is added (it previously hardcoded the initial head).
+_EXPECTED_HEAD = ScriptDirectory(str(_REPO_ROOT / "migrations")).get_current_head()
 
 
 def _make_alembic_config(database_url: str) -> Config:

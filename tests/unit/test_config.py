@@ -145,6 +145,28 @@ def test_gemini_api_settings_are_loaded() -> None:
     assert settings.llm_max_prompt_chars == 6000
 
 
+def test_openai_web_search_settings_are_loaded_when_enabled() -> None:
+    settings = load_settings(
+        {
+            "LLM_DRAFTING_PROVIDER": "openai_web_search",
+            "OPENAI_API_KEY": "secret-key",
+            "OPENAI_RAG_MODEL": "gpt-4o-mini",
+            "OPENAI_WEB_SEARCH_ENABLED": "true",
+            "OPENAI_WEB_SEARCH_ALLOWED_DOMAINS": "midagri.gob.pe, fao.org",
+            "OPENAI_WEB_SEARCH_CONTEXT_SIZE": "high",
+            "OPENAI_WEB_SEARCH_COUNTRY": "PE",
+            "OPENAI_WEB_SEARCH_REGION": "Lima",
+        }
+    )
+
+    assert settings.llm_drafting_provider == "openai_web_search"
+    assert settings.openai_web_search_enabled is True
+    assert settings.openai_web_search_allowed_domains == ("midagri.gob.pe", "fao.org")
+    assert settings.openai_web_search_context_size == "high"
+    assert settings.openai_web_search_country == "PE"
+    assert settings.openai_web_search_region == "Lima"
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [
@@ -155,6 +177,7 @@ def test_gemini_api_settings_are_loaded() -> None:
         ("GEMINI_API_TIMEOUT_SECONDS", "0"),
         ("GEMINI_API_MAX_OUTPUT_TOKENS", "0"),
         ("GEMINI_API_BASE_URL", " "),
+        ("OPENAI_WEB_SEARCH_CONTEXT_SIZE", "giant"),
     ],
 )
 def test_llm_settings_reject_invalid_values(key: str, value: str) -> None:
@@ -200,6 +223,43 @@ def test_gemini_api_requires_key_and_model(missing_key: str) -> None:
     environ.pop(missing_key)
 
     with pytest.raises(ConfigurationError, match=missing_key):
+        load_settings(environ)
+
+
+@pytest.mark.parametrize(
+    ("environ", "message"),
+    [
+        (
+            {
+                "LLM_DRAFTING_PROVIDER": "openai_web_search",
+                "OPENAI_API_KEY": "secret-key",
+                "OPENAI_RAG_MODEL": "gpt-4o-mini",
+            },
+            "OPENAI_WEB_SEARCH_ENABLED",
+        ),
+        (
+            {
+                "LLM_DRAFTING_PROVIDER": "openai_web_search",
+                "OPENAI_WEB_SEARCH_ENABLED": "true",
+                "OPENAI_RAG_MODEL": "gpt-4o-mini",
+            },
+            "OPENAI_API_KEY",
+        ),
+        (
+            {
+                "LLM_DRAFTING_PROVIDER": "openai_web_search",
+                "OPENAI_WEB_SEARCH_ENABLED": "true",
+                "OPENAI_API_KEY": "secret-key",
+            },
+            "OPENAI_RAG_MODEL",
+        ),
+    ],
+)
+def test_openai_web_search_requires_explicit_enablement_key_and_model(
+    environ: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
         load_settings(environ)
 
 
@@ -290,3 +350,71 @@ def test_database_schemas_must_be_isolated() -> None:
 def test_rulebook_weight_tolerance_must_be_positive() -> None:
     with pytest.raises(ConfigurationError):
         load_settings({"RULEBOOK_WEIGHT_TOLERANCE": "0"})
+
+
+# ─── CORS (T0.2) ───────────────────────────────────────────────────────────────
+
+
+def test_cors_defaults_to_local_dev_origins() -> None:
+    settings = load_settings({})
+
+    assert settings.cors_allowed_origins == (
+        "http://localhost:5173",
+        "http://localhost:3000",
+    )
+
+
+def test_cors_origins_are_read_from_csv_env_var() -> None:
+    settings = load_settings({"CORS_ALLOWED_ORIGINS": "https://via.pe, https://app.via.pe"})
+
+    assert settings.cors_allowed_origins == ("https://via.pe", "https://app.via.pe")
+
+
+def test_cors_origins_must_not_be_empty() -> None:
+    with pytest.raises(ConfigurationError):
+        load_settings({"CORS_ALLOWED_ORIGINS": " , "})
+
+
+def test_cors_origins_must_have_http_scheme() -> None:
+    with pytest.raises(ConfigurationError):
+        load_settings({"CORS_ALLOWED_ORIGINS": "via.pe"})
+
+
+def test_cors_origins_must_not_end_with_slash() -> None:
+    with pytest.raises(ConfigurationError):
+        load_settings({"CORS_ALLOWED_ORIGINS": "https://via.pe/"})
+
+
+def test_cors_wildcard_must_be_alone() -> None:
+    assert load_settings({"CORS_ALLOWED_ORIGINS": "*"}).cors_allowed_origins == ("*",)
+    with pytest.raises(ConfigurationError):
+        load_settings({"CORS_ALLOWED_ORIGINS": "*,https://via.pe"})
+
+
+# ─── JWT secret guard (T0.4) ───────────────────────────────────────────────────
+
+
+def test_default_jwt_secret_is_allowed_against_localhost_database() -> None:
+    settings = load_settings(
+        {"DATABASE_URL": "postgresql+psycopg2://u:p@localhost:5433/via_dev"}
+    )
+
+    assert settings.jwt_secret_key == "dev-only-change-me-secret"
+
+
+def test_default_jwt_secret_is_rejected_against_remote_database() -> None:
+    with pytest.raises(ConfigurationError, match="JWT_SECRET_KEY"):
+        load_settings(
+            {"DATABASE_URL": "postgresql+psycopg2://u:p@db.render.com:5432/via_production"}
+        )
+
+
+def test_explicit_jwt_secret_is_accepted_against_remote_database() -> None:
+    settings = load_settings(
+        {
+            "DATABASE_URL": "postgresql+psycopg2://u:p@db.render.com:5432/via_production",
+            "JWT_SECRET_KEY": "a-real-secret-value",
+        }
+    )
+
+    assert settings.jwt_secret_key == "a-real-secret-value"

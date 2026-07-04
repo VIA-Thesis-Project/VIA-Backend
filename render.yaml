@@ -3,10 +3,12 @@ services:
     name: via-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m alembic upgrade head && PYTHONPATH=. python scripts/seed_admin_user.py && PYTHONPATH=. python scripts/seed_prod_rulebooks.py && uvicorn via.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt -c requirements.lock
+    startCommand: python -m alembic upgrade head && python scripts/seed_admin_user.py && python scripts/seed_prod_rulebooks.py && python -m uvicorn via.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: DATABASE_URL
         fromDatabase:
           name: via-postgres
@@ -21,12 +23,18 @@ services:
         sync: false
       - key: JWT_SECRET_KEY
         generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: RELAY_WORKER_POLL_INTERVAL_SECONDS
+        value: "1"
       - key: SEED_ADMIN_EMAIL
         sync: false
       - key: SEED_ADMIN_PASSWORD
         sync: false
       - key: LLM_DRAFTING_PROVIDER
         value: "tavily_rag"
+      - key: LLM_TIMEOUT_SECONDS
+        value: "120"
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_RAG_MODEL
@@ -34,11 +42,11 @@ services:
       - key: OPENAI_FILE_SEARCH_MAX_RESULTS
         value: "15"
       - key: OPENAI_FILE_SEARCH_PROMPT_VERSION
-        value: "v2"
+        value: "via-rag-v1"
       - key: OPENAI_WEB_SEARCH_ENABLED
         value: "true"
       - key: OPENAI_WEB_SEARCH_ALLOWED_DOMAINS
-        value: "midagri.gob.pe,senasa.gob.pe,inia.gob.pe,senamhi.gob.pe,fao.org"
+        value: "midagri.gob.pe,inia.gob.pe,senasa.gob.pe,senamhi.gob.pe,agrorural.gob.pe,fao.org,iica.int,cgiar.org,cabi.org,scielo.org,redalyc.org,ivia.gva.es,repositorio.lamolina.edu.pe,repositorio.unas.edu.pe,repositorio.unap.edu.pe"
       - key: OPENAI_WEB_SEARCH_CONTEXT_SIZE
         value: "medium"
       - key: OPENAI_WEB_SEARCH_COUNTRY
@@ -47,8 +55,16 @@ services:
         value: "Lima"
       - key: TAVILY_API_KEY
         sync: false
-      - key: JINAREADER_ENABLED
-        value: "true"
+      - key: TAVILY_MAX_RESULTS
+        value: "5"
+      - key: TAVILY_SEARCH_DEPTH
+        value: "basic"
+      - key: JINA_READER_ENABLED
+        value: "false"
+      - key: JINA_READER_MAX_URLS
+        value: "1"
+      - key: JINA_READER_TIMEOUT_SECONDS
+        value: "8"
       - key: VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID
         sync: false
       - key: VIA_VECTOR_STORE_PALTA_HASS_ID

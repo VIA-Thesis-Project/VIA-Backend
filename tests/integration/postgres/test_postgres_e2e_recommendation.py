@@ -54,7 +54,7 @@ from tests.integration.postgres.test_postgres_e2e_mcda import (
     ControlledRulebookEvaluationPort,
     ControlledRulebookReadModelPort,
     _PARCEL_ID,
-    _REQUESTED_BY,
+    _fake_evaluation_user,
     drive_saga_to_completion,
 )
 
@@ -72,6 +72,9 @@ from via.bounded_contexts.recommendation.infrastructure.recommendation_query_rep
 from via.bounded_contexts.recommendation.infrastructure.recommendation_repository import SQLAlchemyRecommendationRepository
 from via.bounded_contexts.recommendation.infrastructure.template_drafting_provider import TemplateRecommendationDraftingProvider
 from via.bounded_contexts.recommendation.interfaces.recommendation_consumer import RecommendationConsumer
+from via.bounded_contexts.recommendation.interfaces.recommendation_router import (
+    get_current_user as get_recommendation_current_user,
+)
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_recommendation_query_service
 from via.bounded_contexts.viability_evaluation.application.command_service import (
     McdaRuntimeSettings,
@@ -81,6 +84,9 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_repository import EvaluationRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
+    get_current_user as get_evaluation_current_user,
+)
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_query_service,
     get_process_manager,
@@ -281,6 +287,8 @@ def pg26a_client(pg26a_process_manager, pg26a_session_factory, pg26a_cleanup):
     app.dependency_overrides[get_process_manager] = _pm_dep
     app.dependency_overrides[get_evaluation_query_service] = _eval_qs_dep
     app.dependency_overrides[get_recommendation_query_service] = _rec_qs_dep
+    app.dependency_overrides[get_evaluation_current_user] = _fake_evaluation_user
+    app.dependency_overrides[get_recommendation_current_user] = _fake_evaluation_user
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
             yield client
@@ -288,6 +296,8 @@ def pg26a_client(pg26a_process_manager, pg26a_session_factory, pg26a_cleanup):
         app.dependency_overrides.pop(get_process_manager, None)
         app.dependency_overrides.pop(get_evaluation_query_service, None)
         app.dependency_overrides.pop(get_recommendation_query_service, None)
+        app.dependency_overrides.pop(get_evaluation_current_user, None)
+        app.dependency_overrides.pop(get_recommendation_current_user, None)
 
 
 @pytest.fixture(scope="session")
@@ -308,7 +318,6 @@ def completed_pg_e2e_recommendation(pg26a_client, pg26a_relay, pg26a_session_fac
         "/evaluaciones",
         json={
             "parcel_id": str(_PARCEL_ID),
-            "requested_by": str(_REQUESTED_BY),
             "crop_candidates": [CROP_MAIZ, CROP_PAPA],
             "temporal_window": TEMPORAL_WINDOW,
         },

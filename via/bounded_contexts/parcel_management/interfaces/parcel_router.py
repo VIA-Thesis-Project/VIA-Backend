@@ -131,4 +131,5 @@ def _to_response(parcel: Parcel) -> ParcelResponse:
         owner_id=parcel.owner_id,
         geometry=parcel.geometry.to_geojson(),
         metadata=ParcelMetadataResource(**parcel.metadata.to_mapping()),
+        created_at=parcel.created_at,
     )

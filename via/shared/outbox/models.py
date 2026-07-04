@@ -18,6 +18,7 @@ class OutboxStatus(StrEnum):
     """Lifecycle state of an outbox message."""
 
     PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
     DISPATCHED = "DISPATCHED"
     PERMANENT_FAILURE = "PERMANENT_FAILURE"
 
@@ -29,7 +30,7 @@ class OutboxMessageModel(Base):
     __table_args__ = (
         CheckConstraint("message_kind IN ('COMMAND', 'EVENT')", name="ck_outbox_message_kind"),
         CheckConstraint(
-            "status IN ('PENDING', 'DISPATCHED', 'PERMANENT_FAILURE')",
+            "status IN ('PENDING', 'IN_PROGRESS', 'DISPATCHED', 'PERMANENT_FAILURE')",
             name="ck_outbox_status",
         ),
         {"schema": TRANSACTIONAL_SCHEMA},
@@ -47,6 +48,7 @@ class OutboxMessageModel(Base):
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     @classmethod
     def from_message(

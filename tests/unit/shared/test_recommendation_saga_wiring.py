@@ -271,8 +271,9 @@ def _relay_all_pending(session: SagaRecommendationSession, bus: InMemoryEventBus
         pending = [message for message in _outbox(session) if message.status == OutboxStatus.PENDING.value]
         if not pending:
             return
-        for message in pending:
-            worker._publish_one(message)
+        for model in pending:
+            error = worker._publish_one(model.to_message())
+            worker._apply_outcome(model, error)
 
 
 def _seed_saga(session: SagaRecommendationSession, status: str) -> EvaluationSagaModel:

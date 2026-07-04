@@ -80,6 +80,9 @@ class McdaRuntimeSettings:
     mcda_condicional_threshold: float
     mcda_penalize_epsilon: float
     mcda_non_critical_membership_floor: float = 0.05
+    # Minimum candidate crops (alternatives) for cross-crop entropy weighting.
+    # Defaulted so existing constructors that predate cross-crop entropy still build.
+    mcda_min_alternatives_for_entropy: int = 3
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "McdaRuntimeSettings":
@@ -88,6 +91,7 @@ class McdaRuntimeSettings:
         return cls(
             mcda_alpha=settings.mcda_alpha,
             mcda_min_temporal_series_length=settings.mcda_min_temporal_series_length,
+            mcda_min_alternatives_for_entropy=settings.mcda_min_alternatives_for_entropy,
             mcda_entropy_min_divergence=settings.mcda_entropy_min_divergence,
             mcda_viable_threshold=settings.mcda_viable_threshold,
             mcda_condicional_threshold=settings.mcda_condicional_threshold,
@@ -233,46 +237,46 @@ class PureMcdaEvaluationEngine:
     ) -> Evaluation:
         """Return an evaluation aggregate calculated from ACL DTOs."""
 
+        # ── Pass 1: per-crop memberships (no entropy/hybrid/score yet) ──────────
+        # Entropy weighting is cross-crop (see EntropyWeightsService), so every
+        # candidate crop's aggregated memberships must exist before the objective
+        # weights can be computed. This first pass produces exactly those.
+        crop_passes = [_criterion_pass_for_crop(rulebook, vector) for rulebook in rulebooks]
+
+        # ── Global entropy over the crops x criteria decision matrix ────────────
+        decision_matrix = _build_decision_matrix(crop_passes)
+        entropy_result = self._entropy_service.calculate(
+            decision_matrix,
+            min_alternatives=settings.mcda_min_alternatives_for_entropy,
+            min_divergence=settings.mcda_entropy_min_divergence,
+        )
+
+        # ── Pass 2: per-crop hybrid weights, policies and scoring ───────────────
         crop_results: list[CropResult] = []
-        for rulebook in rulebooks:
-            details, phase_traces, missing_criteria, unrecognized_variables = _criterion_details_for_crop(rulebook, vector)
-            w_ahp = {detail.criterion_id: float(detail.w_ahp) for detail in details}
-            # Full AHP weights for ALL criteria in the rulebook (including those with missing data).
-            # Used by the data-sufficiency policy to compute missing_weight correctly.
-            all_ahp_weights = {
-                criterion_id: float(
-                    next(spec.w_ahp for spec in rulebook.criteria if spec.criterion_id == criterion_id)
-                )
-                for criterion_id in dict.fromkeys(spec.criterion_id for spec in rulebook.criteria)
-            }
-            entropy_result = self._entropy_service.calculate(
-                {detail.criterion_id: [float(value) for value in detail.memberships_by_period.values()] for detail in details},
-                min_series_length=settings.mcda_min_temporal_series_length,
-                min_divergence=settings.mcda_entropy_min_divergence,
+        for crop_pass in crop_passes:
+            w_hybrid = self._hybrid_service.combine(
+                crop_pass.w_ahp,
+                entropy_result.weights,
+                alpha=settings.mcda_alpha,
             )
-            w_hybrid = self._hybrid_service.combine(w_ahp, entropy_result.weights, alpha=settings.mcda_alpha)
             enriched_details = [
                 detail.with_entropy_weights(
-                    w_entropy=None if entropy_result.weights is None else entropy_result.weights[detail.criterion_id],
+                    w_entropy=None if entropy_result.weights is None else entropy_result.weights.get(detail.criterion_id),
                     w_hybrid=w_hybrid[detail.criterion_id],
-                    entropy_used=entropy_result.entropy_used,
+                    entropy_used=detail.criterion_id in entropy_result.qualified_criteria,
                     entropy_fallback_reason=entropy_result.fallback_reason,
                 )
-                for detail in details
+                for detail in crop_pass.details
             ]
-            aggregated = {detail.criterion_id: float(detail.aggregated_membership) for detail in enriched_details}
-            critical_criteria = {
-                criterion.criterion_id
-                for criterion in rulebook.criteria
-                if criterion.critical_policy in {CriticalPolicy.NO_VIABLE.value, CriticalPolicy.PENALIZE.value}
-            }
+            aggregated = crop_pass.aggregated
+            critical_criteria = crop_pass.critical_criteria
             basic_result = self._crop_service.evaluate(
-                crop_id=rulebook.crop_id,
+                crop_id=crop_pass.rulebook.crop_id,
                 aggregated_memberships=aggregated,
                 hybrid_weights=w_hybrid,
-                missing_criteria=missing_criteria,
+                missing_criteria=crop_pass.missing_criteria,
                 critical_criteria=critical_criteria,
-                unrecognized_variables=unrecognized_variables,
+                unrecognized_variables=crop_pass.unrecognized_variables,
                 viable_threshold=settings.mcda_viable_threshold,
                 condicional_threshold=settings.mcda_condicional_threshold,
                 non_critical_membership_floor=settings.mcda_non_critical_membership_floor,
@@ -281,24 +285,24 @@ class PureMcdaEvaluationEngine:
                 aggregated_memberships=aggregated,
                 hybrid_weights=w_hybrid,
                 calc_condition=basic_result.calc_condition,
-                critical_traces=_critical_traces(phase_traces),
+                critical_traces=_critical_traces(crop_pass.phase_traces),
                 critical_criteria=critical_criteria,
                 penalize_epsilon=settings.mcda_penalize_epsilon,
                 non_critical_membership_floor=settings.mcda_non_critical_membership_floor,
                 viable_threshold=settings.mcda_viable_threshold,
                 condicional_threshold=settings.mcda_condicional_threshold,
             )
-            gaps = self._gap_service.calculate(_phase_gap_traces(phase_traces))
+            gaps = self._gap_service.calculate(_phase_gap_traces(crop_pass.phase_traces))
 
             final_score, final_condition, final_category = _apply_sufficiency_policy(
                 basic_result=basic_result,
                 critical_result=critical_result,
-                all_ahp_weights=all_ahp_weights,
+                all_ahp_weights=crop_pass.all_ahp_weights,
             )
 
             crop_results.append(
                 CropResult(
-                    crop_id=rulebook.crop_id,
+                    crop_id=crop_pass.rulebook.crop_id,
                     score=final_score,
                     rank_position=None,
                     calc_condition=final_condition,
@@ -321,6 +325,69 @@ class PureMcdaEvaluationEngine:
             temporal_window=dict(command.extraction_result.get("temporal_window", {})),
             crop_results=ranked_results,
         )
+
+
+@dataclass(frozen=True)
+class _CropPass1:
+    """First-pass per-crop results, computed before cross-crop entropy weights."""
+
+    rulebook: RulebookEvaluationData
+    details: list[CriterionDetail]
+    phase_traces: list[PhaseEvaluationTrace]
+    missing_criteria: list[str]
+    unrecognized_variables: list[str]
+    w_ahp: dict[str, float]
+    all_ahp_weights: dict[str, float]
+    aggregated: dict[str, float]
+    critical_criteria: set[str]
+
+
+def _criterion_pass_for_crop(rulebook: RulebookEvaluationData, vector: AgroenvVectorData) -> _CropPass1:
+    """Compute one crop's memberships and AHP weights without entropy or scoring."""
+
+    details, phase_traces, missing_criteria, unrecognized_variables = _criterion_details_for_crop(rulebook, vector)
+    w_ahp = {detail.criterion_id: float(detail.w_ahp) for detail in details}
+    # Full AHP weights for ALL criteria in the rulebook (including those with missing data).
+    # Used by the data-sufficiency policy to compute missing_weight correctly.
+    all_ahp_weights = {
+        criterion_id: float(
+            next(spec.w_ahp for spec in rulebook.criteria if spec.criterion_id == criterion_id)
+        )
+        for criterion_id in dict.fromkeys(spec.criterion_id for spec in rulebook.criteria)
+    }
+    aggregated = {detail.criterion_id: float(detail.aggregated_membership) for detail in details}
+    critical_criteria = {
+        criterion.criterion_id
+        for criterion in rulebook.criteria
+        if criterion.critical_policy in {CriticalPolicy.NO_VIABLE.value, CriticalPolicy.PENALIZE.value}
+    }
+    return _CropPass1(
+        rulebook=rulebook,
+        details=details,
+        phase_traces=phase_traces,
+        missing_criteria=missing_criteria,
+        unrecognized_variables=unrecognized_variables,
+        w_ahp=w_ahp,
+        all_ahp_weights=all_ahp_weights,
+        aggregated=aggregated,
+        critical_criteria=critical_criteria,
+    )
+
+
+def _build_decision_matrix(crop_passes: list[_CropPass1]) -> dict[str, dict[str, float]]:
+    """Assemble the crops x criteria decision matrix of aggregated memberships.
+
+    Columns are naturally ragged: a criterion appears only for the crops that
+    have it with valid data. EntropyWeightsService handles the irregularity
+    per-criterion.
+    """
+
+    matrix: dict[str, dict[str, float]] = {}
+    for crop_pass in crop_passes:
+        crop_id = crop_pass.rulebook.crop_id
+        for criterion_id, membership in crop_pass.aggregated.items():
+            matrix.setdefault(criterion_id, {})[crop_id] = membership
+    return matrix
 
 
 def _criterion_details_for_crop(
