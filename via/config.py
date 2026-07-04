@@ -41,6 +41,7 @@ DEFAULT_GEE_ENABLED = False
 DEFAULT_GEE_TIMEOUT_SECONDS = 60
 DEFAULT_GEE_MAX_RETRIES = 3
 DEFAULT_MCDA_MIN_TEMPORAL_SERIES_LENGTH = 3
+DEFAULT_MCDA_MIN_ALTERNATIVES_FOR_ENTROPY = 3
 DEFAULT_MCDA_ENTROPY_MIN_DIVERGENCE = 1e-9
 DEFAULT_MCDA_VIABLE_THRESHOLD = 0.70
 DEFAULT_MCDA_CONDICIONAL_THRESHOLD = 0.40
@@ -68,8 +69,9 @@ DEFAULT_JINA_READER_TIMEOUT_SECONDS = 25
 DEFAULT_JINA_READER_MAX_URLS = 3
 DEFAULT_JINA_READER_MIN_CHARS = 300
 DEFAULT_JINA_READER_MAX_CHARS_PER_DOC = 8_000
-DEFAULT_TAVILY_MAX_RESULTS = 20
-DEFAULT_TAVILY_SEARCH_DEPTH = "advanced"
+DEFAULT_TAVILY_MAX_RESULTS = 5
+DEFAULT_TAVILY_SEARCH_DEPTH = "basic"
+DEFAULT_CORS_ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:3000"
 
 
 @dataclass(frozen=True)
@@ -80,8 +82,10 @@ class Settings:
     database_url: str
     db_schema_transactional: str
     db_schema_documental: str
+    cors_allowed_origins: tuple[str, ...]
     mcda_alpha: float
     mcda_min_temporal_series_length: int
+    mcda_min_alternatives_for_entropy: int
     mcda_entropy_min_divergence: float
     mcda_viable_threshold: float
     mcda_condicional_threshold: float
@@ -159,11 +163,21 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             DEFAULT_TRANSACTIONAL_SCHEMA,
         ),
         db_schema_documental=source.get("DB_SCHEMA_DOCUMENTAL", DEFAULT_DOCUMENTAL_SCHEMA),
+        cors_allowed_origins=_read_csv_tuple(
+            source,
+            "CORS_ALLOWED_ORIGINS",
+            DEFAULT_CORS_ALLOWED_ORIGINS,
+        ),
         mcda_alpha=_read_float(source, "MCDA_ALPHA", "0.7"),
         mcda_min_temporal_series_length=_read_int(
             source,
             "MCDA_MIN_TEMPORAL_SERIES_LENGTH",
             str(DEFAULT_MCDA_MIN_TEMPORAL_SERIES_LENGTH),
+        ),
+        mcda_min_alternatives_for_entropy=_read_int(
+            source,
+            "MCDA_MIN_ALTERNATIVES_FOR_ENTROPY",
+            str(DEFAULT_MCDA_MIN_ALTERNATIVES_FOR_ENTROPY),
         ),
         mcda_entropy_min_divergence=_read_float(
             source,
@@ -309,6 +323,8 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigurationError("MCDA_ALPHA must be in [0, 1]")
     if settings.mcda_min_temporal_series_length < 2:
         raise ConfigurationError("MCDA_MIN_TEMPORAL_SERIES_LENGTH must be >= 2")
+    if settings.mcda_min_alternatives_for_entropy < 2:
+        raise ConfigurationError("MCDA_MIN_ALTERNATIVES_FOR_ENTROPY must be >= 2")
     if settings.mcda_entropy_min_divergence <= 0:
         raise ConfigurationError("MCDA_ENTROPY_MIN_DIVERGENCE must be positive")
     if not 0.0 <= settings.mcda_viable_threshold <= 1.0:
@@ -325,6 +341,17 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigurationError("RELAY_WORKER_POLL_INTERVAL_SECONDS must not exceed 60")
     if settings.relay_worker_poll_interval_seconds <= 0:
         raise ConfigurationError("RELAY_WORKER_POLL_INTERVAL_SECONDS must be positive")
+    if not settings.cors_allowed_origins:
+        raise ConfigurationError("CORS_ALLOWED_ORIGINS must contain at least one origin")
+    if "*" in settings.cors_allowed_origins and len(settings.cors_allowed_origins) > 1:
+        raise ConfigurationError("CORS_ALLOWED_ORIGINS must be '*' alone or a list of explicit origins")
+    for origin in settings.cors_allowed_origins:
+        if origin == "*":
+            continue
+        if not origin.startswith(("http://", "https://")):
+            raise ConfigurationError(f"CORS_ALLOWED_ORIGINS entries must start with http:// or https:// (got {origin!r})")
+        if origin.endswith("/"):
+            raise ConfigurationError(f"CORS_ALLOWED_ORIGINS entries must not end with '/' (got {origin!r})")
     if not settings.db_schema_transactional.strip():
         raise ConfigurationError("DB_SCHEMA_TRANSACTIONAL must not be empty")
     if not settings.db_schema_documental.strip():
@@ -333,6 +360,12 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigurationError("Database schemas must be isolated")
     if not settings.jwt_secret_key.strip():
         raise ConfigurationError("JWT_SECRET_KEY must not be empty")
+    if settings.jwt_secret_key == DEFAULT_JWT_SECRET_KEY and not _is_local_database(settings.database_url):
+        raise ConfigurationError(
+            "JWT_SECRET_KEY is still the development default but DATABASE_URL does not "
+            "point to localhost. Refusing to start with a publicly known secret — "
+            "set a real JWT_SECRET_KEY in the environment."
+        )
     if settings.jwt_algorithm != "HS256":
         raise ConfigurationError("JWT_ALGORITHM must be HS256")
     if settings.jwt_access_token_expire_minutes <= 0:
@@ -420,6 +453,14 @@ def validate_settings(settings: Settings) -> None:
             raise ConfigurationError(
                 "GEE_PRIVATE_KEY_FILE or GEE_PRIVATE_KEY_JSON is required when GEE_ENABLED=True"
             )
+
+
+def _is_local_database(database_url: str) -> bool:
+    """Return True when the database host is a local development address."""
+
+    host_part = database_url.split("@", 1)[-1]
+    host = host_part.split("/", 1)[0].split(":", 1)[0].strip("[]").lower()
+    return host in {"localhost", "127.0.0.1", "::1", "host.docker.internal", "via-postgres"}
 
 
 def _read_float(source: Mapping[str, str], key: str, default: str) -> float:

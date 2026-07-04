@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
+from via.bounded_contexts.iam.domain.user import User
 from via.bounded_contexts.recommendation.application.recommendation_query_service import (
     RecommendationQueryService,
 )
@@ -20,6 +21,12 @@ from via.bounded_contexts.recommendation.interfaces.resources import (
 router = APIRouter(tags=["recommendations"])
 
 
+def get_current_user() -> User:
+    """Return the authenticated user dependency."""
+
+    raise RuntimeError("Authenticated user dependency is not configured")
+
+
 def get_recommendation_query_service() -> RecommendationQueryService:
     """Return the configured Recommendation Query Service dependency."""
 
@@ -30,6 +37,7 @@ def get_recommendation_query_service() -> RecommendationQueryService:
 def get_recommendation(
     recommendation_id: UUID,
     query_service: RecommendationQueryService = Depends(get_recommendation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> RecommendationResponse:
     """Return a recommendation by ID.
 
@@ -47,6 +55,7 @@ def get_recommendation(
 def get_recommendations_for_evaluation(
     evaluation_id: UUID,
     query_service: RecommendationQueryService = Depends(get_recommendation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> list[RecommendationResponse]:
     """Return all recommendations for an evaluation.
 
@@ -62,6 +71,7 @@ def get_recommendations_for_evaluation(
 def get_final_recommendation(
     evaluation_id: UUID,
     query_service: RecommendationQueryService = Depends(get_recommendation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> RecommendationResponse | JSONResponse:
     """Return the most recent recommendation for an evaluation.
 

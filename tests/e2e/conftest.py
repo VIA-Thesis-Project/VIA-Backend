@@ -40,6 +40,10 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_repository import EvaluationRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
+    get_current_user as get_evaluation_current_user,
+)
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_query_service,
     get_process_manager,
@@ -81,6 +85,18 @@ _P2 = "2026-Q2"
 CROP_MAIZ = "maiz_amarillo_duro"
 CROP_PAPA = "papa"
 TEMPORAL_WINDOW = {"start": "2026-03-01", "end": "2026-08-31"}
+
+
+class _AuthenticatedUserStub:
+    """Authenticated user double whose id matches the saga's requested_by."""
+
+    def __init__(self, user_id: UUID, role: Role = Role.USUARIO_AGRICOLA) -> None:
+        self.id = user_id
+        self.role = role
+
+
+def _fake_evaluation_user() -> _AuthenticatedUserStub:
+    return _AuthenticatedUserStub(_REQUESTED_BY)
 
 # GeoJSON MultiPolygon (Perú coastal coordinate, WGS-84 valid)
 _PARCEL_GEOMETRY = {
@@ -149,12 +165,13 @@ CREATE TABLE IF NOT EXISTS "transactional"."outbox_messages" (
     message_type TEXT NOT NULL,
     message_kind TEXT NOT NULL CHECK (message_kind IN ('COMMAND', 'EVENT')),
     payload_json TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DISPATCHED', 'PERMANENT_FAILURE')),
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'IN_PROGRESS', 'DISPATCHED', 'PERMANENT_FAILURE')),
     retry_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
     correlation_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    dispatched_at TEXT
+    dispatched_at TEXT,
+    claimed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS "transactional"."processed_message_ids" (
@@ -496,12 +513,14 @@ def e2e_client(e2e_process_manager, e2e_session_factory):
 
     app.dependency_overrides[get_process_manager] = _pm_dep
     app.dependency_overrides[get_evaluation_query_service] = _qs_dep
+    app.dependency_overrides[get_evaluation_current_user] = _fake_evaluation_user
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_process_manager, None)
         app.dependency_overrides.pop(get_evaluation_query_service, None)
+        app.dependency_overrides.pop(get_evaluation_current_user, None)
 
 
 @pytest.fixture(scope="session")
@@ -511,7 +530,6 @@ def completed_e2e_evaluation(e2e_client, e2e_relay, e2e_session_factory):
         "/evaluaciones",
         json={
             "parcel_id": str(_PARCEL_ID),
-            "requested_by": str(_REQUESTED_BY),
             "crop_candidates": [CROP_MAIZ, CROP_PAPA],
             "temporal_window": TEMPORAL_WINDOW,
         },

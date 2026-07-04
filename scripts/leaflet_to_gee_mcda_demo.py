@@ -60,6 +60,10 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_repository import EvaluationRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
+    get_current_user as get_evaluation_current_user,
+)
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_query_service,
     get_process_manager,
@@ -339,8 +343,13 @@ def run_demo() -> None:
         finally:
             session.close()
 
+    class _DemoUser:
+        id = _OWNER_ID
+        role = Role.USUARIO_AGRICOLA
+
     app.dependency_overrides[get_process_manager] = _pm_dep
     app.dependency_overrides[get_evaluation_query_service] = _qs_dep
+    app.dependency_overrides[get_evaluation_current_user] = lambda: _DemoUser()
 
     evaluation_id: UUID | None = None
     final_status: str = "NOT_STARTED"
@@ -351,7 +360,6 @@ def run_demo() -> None:
                 "/evaluaciones",
                 json={
                     "parcel_id": str(parcel_id),
-                    "requested_by": str(_OWNER_ID),
                     "crop_candidates": [_CROP_ID],
                     "temporal_window": _TEMPORAL_WINDOW,
                 },
@@ -389,6 +397,7 @@ def run_demo() -> None:
     finally:
         app.dependency_overrides.pop(get_process_manager, None)
         app.dependency_overrides.pop(get_evaluation_query_service, None)
+        app.dependency_overrides.pop(get_evaluation_current_user, None)
         engine.dispose()
 
     print(f"      HTTP {mcda_resp.status_code}")

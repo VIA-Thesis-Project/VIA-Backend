@@ -64,9 +64,10 @@ def test_evaluation_results_bridge_instantiates() -> None:
 def test_configure_application_runtime_starts_without_external_services() -> None:
     """configure_application_runtime() must not call GEE, Gemini, Vertex or real DB."""
 
+    from via.config import load_settings
     from via.shared.runtime.application_runtime import configure_application_runtime
 
-    runtime = configure_application_runtime()
+    runtime = configure_application_runtime(settings=load_settings({}))
     assert runtime is not None
 
 
@@ -74,16 +75,18 @@ def test_runtime_uses_template_provider_by_default() -> None:
     from via.bounded_contexts.recommendation.infrastructure.template_drafting_provider import (
         TemplateRecommendationDraftingProvider,
     )
+    from via.config import load_settings
     from via.shared.runtime.application_runtime import configure_application_runtime
 
-    runtime = configure_application_runtime()
+    runtime = configure_application_runtime(settings=load_settings({}))
     assert isinstance(runtime.recommendation_drafting_provider, TemplateRecommendationDraftingProvider)
 
 
 def test_no_llm_call_on_startup() -> None:
+    from via.config import load_settings
     from via.shared.runtime.application_runtime import configure_application_runtime
 
-    runtime = configure_application_runtime()
+    runtime = configure_application_runtime(settings=load_settings({}))
     assert runtime.recommendation_drafting_provider.__class__.__name__ == "TemplateRecommendationDraftingProvider"
 
 

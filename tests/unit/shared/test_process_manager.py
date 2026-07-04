@@ -224,7 +224,7 @@ def test_evaluation_completed_enqueues_recommendation_command_with_saga_correlat
     assert outbox.payload_json["evaluation_id"] == str(saga.id)
     assert outbox.payload_json["parcel_id"] == str(saga.parcel_id)
     assert outbox.payload_json["crop_id"] is None
-    assert outbox.payload_json["max_fragments"] == 5
+    assert outbox.payload_json["max_fragments"] == 8
 
 
 def test_evaluation_completed_enqueues_recommendation_for_each_recommendable_crop() -> None:

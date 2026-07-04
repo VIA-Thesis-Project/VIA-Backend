@@ -67,6 +67,10 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_repository import EvaluationRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
+    get_current_user as get_evaluation_current_user,
+)
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_query_service,
     get_process_manager,
@@ -114,6 +118,18 @@ _CRITERION_ID = UUID("beef1001-0000-4000-8000-000000000028")
 _PHASE_ID = UUID("beef2001-0000-4000-8000-000000000028")
 _REQUIREMENT_ID = UUID("beef3001-0000-4000-8000-000000000028")
 _OWNER_ID = UUID("beef0002-0000-4000-8000-000000000028")
+
+
+class _AuthenticatedUserStub:
+    """Authenticated user double whose id matches the saga's requested_by."""
+
+    def __init__(self, user_id: UUID, role: Role = Role.USUARIO_AGRICOLA) -> None:
+        self.id = user_id
+        self.role = role
+
+
+def _fake_evaluation_user() -> _AuthenticatedUserStub:
+    return _AuthenticatedUserStub(_OWNER_ID)
 
 # GeoJSON polygon in [lng, lat] — small parcel near Lima, Peru (~100 m × 100 m)
 # Leaflet uses [lat, lng]; GeoJSON requires [lng, lat] — conversion is mandatory
@@ -407,12 +423,14 @@ def pg28a_client(pg28a_process_manager, pg28a_session_factory):
 
     app.dependency_overrides[get_process_manager] = _pm_dep
     app.dependency_overrides[get_evaluation_query_service] = _qs_dep
+    app.dependency_overrides[get_evaluation_current_user] = _fake_evaluation_user
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_process_manager, None)
         app.dependency_overrides.pop(get_evaluation_query_service, None)
+        app.dependency_overrides.pop(get_evaluation_current_user, None)
 
 
 @pytest.fixture(scope="session")
@@ -433,7 +451,6 @@ def pg28a_leaflet_result(
         "/evaluaciones",
         json={
             "parcel_id": str(pg28a_parcel_id),
-            "requested_by": str(_OWNER_ID),
             "crop_candidates": [_CROP_ID],
             "temporal_window": _TEMPORAL_WINDOW,
         },

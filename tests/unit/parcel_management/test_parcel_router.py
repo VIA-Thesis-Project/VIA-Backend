@@ -57,7 +57,7 @@ class FakeQueryService:
 
 
 def test_create_parcel_requires_allowed_role_and_returns_201_shape() -> None:
-    user = _user(Role.ESPECIALISTA_TECNICO)
+    user = _user(Role.USUARIO_AGRICOLA)
     service = FakeCommandService()
 
     response = create_parcel(
@@ -89,8 +89,8 @@ def test_foreign_parcel_access_returns_403() -> None:
     assert exc_info.value.status_code == 403
 
 
-def test_usuario_agricola_is_rejected_for_parcel_routes() -> None:
-    user = _user(Role.USUARIO_AGRICOLA)
+def test_especialista_tecnico_is_rejected_for_parcel_routes() -> None:
+    user = _user(Role.ESPECIALISTA_TECNICO)
 
     with pytest.raises(HTTPException) as exc_info:
         list_parcels(user, FakeQueryService())
