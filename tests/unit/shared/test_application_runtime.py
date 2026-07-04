@@ -45,7 +45,8 @@ def test_runtime_registration_is_idempotent_for_same_event_bus() -> None:
 
 
 def test_runtime_uses_template_provider_without_external_llm() -> None:
-    runtime = configure_application_runtime()
+    settings = load_settings({"LLM_DRAFTING_PROVIDER": "template"})
+    runtime = configure_application_runtime(settings=settings)
 
     assert isinstance(runtime.recommendation_drafting_provider, TemplateRecommendationDraftingProvider)
     assert "openai" not in _imports_from(ROOT / "via" / "shared" / "runtime" / "application_runtime.py")
@@ -95,6 +96,36 @@ def test_runtime_uses_gemini_api_provider_when_configured() -> None:
     runtime = configure_application_runtime(settings=settings)
 
     assert runtime.recommendation_drafting_provider.__class__.__name__ == "GeminiApiDraftingProvider"
+
+
+def test_runtime_uses_openai_web_search_provider_when_configured() -> None:
+    settings = load_settings(
+        {
+            "LLM_DRAFTING_PROVIDER": "openai_web_search",
+            "OPENAI_API_KEY": "secret-key",
+            "OPENAI_RAG_MODEL": "gpt-4o-mini",
+            "OPENAI_WEB_SEARCH_ENABLED": "true",
+        }
+    )
+
+    runtime = configure_application_runtime(settings=settings)
+
+    assert runtime.recommendation_drafting_provider.__class__.__name__ == "OpenAIWebSearchDraftingProvider"
+
+
+def test_runtime_uses_tavily_rag_provider_when_configured() -> None:
+    settings = load_settings(
+        {
+            "LLM_DRAFTING_PROVIDER": "tavily_rag",
+            "TAVILY_API_KEY": "tvly-test",
+            "OPENAI_API_KEY": "sk-test",
+            "OPENAI_RAG_MODEL": "gpt-4o-mini",
+        }
+    )
+
+    runtime = configure_application_runtime(settings=settings)
+
+    assert runtime.recommendation_drafting_provider.__class__.__name__ == "TavilyRagDraftingProvider"
 
 
 def test_application_composition_calls_recommendation_saga_registration() -> None:

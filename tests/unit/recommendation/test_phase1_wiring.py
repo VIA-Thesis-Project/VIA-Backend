@@ -18,6 +18,8 @@ Covers 13 test categories:
 
 from __future__ import annotations
 
+import re
+
 import ast
 import importlib
 import sys
@@ -486,14 +488,21 @@ def test_no_asyncpg_or_async_engine_in_recommendation_bc() -> None:
 
 
 def test_no_hardcoded_secrets_or_coordinates_in_recommendation_bc() -> None:
-    suspicious_patterns = ["api_key =", "secret =", "password =", "AAAA", "-77.365", "-11.202"]
+    suspicious_patterns = [
+        re.compile(r"\bapi_key\s*=\s*['\"]"),
+        re.compile(r"\bsecret\s*=\s*['\"]"),
+        re.compile(r"\bpassword\s*=\s*['\"]"),
+        re.compile(r"AAAA"),
+        re.compile(r"-77\.365"),
+        re.compile(r"-11\.202"),
+    ]
     rec_dir = ROOT / "via" / "bounded_contexts" / "recommendation"
     offenders: list[str] = []
     for path in rec_dir.rglob("*.py"):
         src = path.read_text(encoding="utf-8")
         for pat in suspicious_patterns:
-            if pat in src:
-                offenders.append(f"{path.relative_to(ROOT)} contains '{pat}'")
+            if pat.search(src):
+                offenders.append(f"{path.relative_to(ROOT)} matches {pat.pattern!r}")
     assert offenders == [], f"Suspicious hardcoded values found: {offenders}"
 
 

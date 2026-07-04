@@ -70,7 +70,7 @@ class GenerarRecomendacionSolicitada:
     evaluation_id: UUID
     parcel_id: UUID | None = None
     crop_id: str | None = None
-    max_fragments: int = 5
+    max_fragments: int = 8
 
     def to_payload(self) -> dict[str, Any]:
         """Serialize the command as JSON-compatible data."""

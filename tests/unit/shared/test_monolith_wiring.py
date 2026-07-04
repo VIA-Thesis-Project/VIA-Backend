@@ -13,6 +13,7 @@ from via.bounded_contexts.recommendation.infrastructure.template_drafting_provid
     TemplateRecommendationDraftingProvider,
 )
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.config import load_settings
 from via.main import create_app
 from via.shared.event_bus.in_memory_event_bus import InMemoryEventBus
 from via.shared.orchestration.evaluation_process_manager.commands import (
@@ -125,14 +126,14 @@ def test_documentos_route_registered() -> None:
 
 
 def test_runtime_uses_template_provider_by_default() -> None:
-    runtime = configure_application_runtime()
+    runtime = configure_application_runtime(settings=load_settings({}))
     assert isinstance(runtime.recommendation_drafting_provider, TemplateRecommendationDraftingProvider)
 
 
 def test_no_external_llm_calls_on_startup() -> None:
     """configure_application_runtime() with defaults must not call Gemini, Vertex or local HTTP."""
 
-    runtime = configure_application_runtime()
+    runtime = configure_application_runtime(settings=load_settings({}))
     assert runtime.recommendation_drafting_provider.__class__.__name__ == "TemplateRecommendationDraftingProvider"
 
 

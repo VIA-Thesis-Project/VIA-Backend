@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from via.bounded_contexts.parcel_management.domain.value_objects import GeoJSONGeometry, ParcelMetadata
@@ -16,12 +17,19 @@ class Parcel:
     owner_id: UUID
     geometry: GeoJSONGeometry
     metadata: ParcelMetadata
+    created_at: datetime | None = None
 
     @classmethod
     def create(cls, owner_id: UUID, geometry: GeoJSONGeometry, metadata: ParcelMetadata) -> "Parcel":
         """Create a new parcel aggregate."""
 
-        return cls(id=uuid4(), owner_id=owner_id, geometry=geometry, metadata=metadata)
+        return cls(
+            id=uuid4(),
+            owner_id=owner_id,
+            geometry=geometry,
+            metadata=metadata,
+            created_at=datetime.now(UTC),
+        )
 
     def update(self, geometry: GeoJSONGeometry | None = None, metadata: ParcelMetadata | None = None) -> None:
         """Update parcel geometry and/or metadata."""

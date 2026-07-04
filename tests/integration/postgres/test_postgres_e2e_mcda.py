@@ -64,6 +64,10 @@ from via.bounded_contexts.viability_evaluation.application.query_service import 
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_repository import EvaluationRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_consumer import ViabilityEvaluationConsumer
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
+    get_current_user as get_evaluation_current_user,
+)
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_query_service,
     get_process_manager,
@@ -107,6 +111,18 @@ TEMPORAL_WINDOW = {"start": "2026-03-01", "end": "2026-08-31"}
 # because ControlledParcelGeometryPort bypasses the DB lookup.
 _PARCEL_ID = UUID("aaaaaaaa-bbbb-4000-8000-cccccccccccc")
 _REQUESTED_BY = UUID("dddddddd-eeee-4000-8000-ffffffffffff")
+
+
+class _AuthenticatedUserStub:
+    """Authenticated user double whose id matches the saga's requested_by."""
+
+    def __init__(self, user_id: UUID, role: Role = Role.USUARIO_AGRICOLA) -> None:
+        self.id = user_id
+        self.role = role
+
+
+def _fake_evaluation_user() -> _AuthenticatedUserStub:
+    return _AuthenticatedUserStub(_REQUESTED_BY)
 
 # Valid WGS-84 MultiPolygon (Perú coastal region) — returned by controlled port
 _PARCEL_GEOMETRY = {
@@ -358,12 +374,14 @@ def pg25b_client(pg25b_process_manager, pg25b_session_factory, pg25b_cleanup):
 
     app.dependency_overrides[get_process_manager] = _pm_dep
     app.dependency_overrides[get_evaluation_query_service] = _qs_dep
+    app.dependency_overrides[get_evaluation_current_user] = _fake_evaluation_user
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_process_manager, None)
         app.dependency_overrides.pop(get_evaluation_query_service, None)
+        app.dependency_overrides.pop(get_evaluation_current_user, None)
 
 
 @pytest.fixture(scope="session")
@@ -378,7 +396,6 @@ def completed_pg_e2e_evaluation(pg25b_client, pg25b_relay, pg25b_session_factory
         "/evaluaciones",
         json={
             "parcel_id": str(_PARCEL_ID),
-            "requested_by": str(_REQUESTED_BY),
             "crop_candidates": [CROP_MAIZ, CROP_PAPA],
             "temporal_window": TEMPORAL_WINDOW,
         },

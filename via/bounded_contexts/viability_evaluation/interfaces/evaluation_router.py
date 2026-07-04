@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.iam.domain.user import User
 from via.bounded_contexts.viability_evaluation.application.query_service import (
     MCDA_READY_STATUSES,
     EvaluationMcdaResultReadModel,
@@ -28,13 +30,17 @@ from via.shared.orchestration.evaluation_process_manager.states import Evaluatio
 
 
 router = APIRouter(prefix="/evaluaciones", tags=["evaluations"])
+START_EVALUATION_ROLES = {Role.ADMINISTRADOR, Role.USUARIO_AGRICOLA}
 
 
 class StartEvaluationRequest(BaseModel):
-    """Request body for creating an evaluation saga."""
+    """Request body for creating an evaluation saga.
+
+    requested_by is intentionally NOT part of this contract: it is taken
+    from the authenticated user resolved by get_current_user.
+    """
 
     parcel_id: UUID
-    requested_by: UUID
     crop_candidates: list[str] = Field(min_length=1)
     temporal_window: dict[str, Any]
 
@@ -44,6 +50,12 @@ class StartEvaluationAccepted(BaseModel):
 
     evaluation_id: UUID
     status: EvaluationSagaStatus
+
+
+def get_current_user() -> User:
+    """Return the authenticated user dependency."""
+
+    raise RuntimeError("Authenticated user dependency is not configured")
 
 
 def get_process_manager() -> EvaluationProcessManager:
@@ -61,13 +73,16 @@ def get_evaluation_query_service() -> EvaluationQueryService:
 @router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=StartEvaluationAccepted)
 def start_evaluation(
     request: StartEvaluationRequest,
+    current_user: User = Depends(get_current_user),
     process_manager: EvaluationProcessManager = Depends(get_process_manager),
 ) -> StartEvaluationAccepted:
-    """Start an evaluation saga and return the accepted evaluation id."""
+    """Start an evaluation saga on behalf of the authenticated user."""
 
+    if current_user.role not in START_EVALUATION_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     evaluation_id = process_manager.start_evaluation(
         parcel_id=request.parcel_id,
-        requested_by=request.requested_by,
+        requested_by=current_user.id,
         crop_candidates=request.crop_candidates,
         temporal_window=request.temporal_window,
     )
@@ -78,6 +93,7 @@ def start_evaluation(
 def get_evaluation_status(
     evaluation_id: UUID,
     query_service: EvaluationQueryService = Depends(get_evaluation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> EvaluationStatusResponse:
     """Return the current status and last transition of an evaluation saga.
 
@@ -101,6 +117,7 @@ def get_evaluation_status(
 def get_mcda_result(
     evaluation_id: UUID,
     query_service: EvaluationQueryService = Depends(get_evaluation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> EvaluationMcdaResultResponse | JSONResponse:
     """Return persisted MCDA ranking, scores, gaps and limiting factors.
 
@@ -139,6 +156,7 @@ def get_mcda_result(
 def get_agroenv_vector(
     evaluation_id: UUID,
     query_service: EvaluationQueryService = Depends(get_evaluation_query_service),
+    current_user: User = Depends(get_current_user),
 ) -> AgroenvVectorResponse:
     """Return the persisted GEE/agroenvironmental vector used by the evaluation."""
 

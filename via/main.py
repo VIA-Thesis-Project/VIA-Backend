@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,10 +35,12 @@ from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import 
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import router as rulebook_router
 from via.bounded_contexts.recommendation.application.recommendation_query_service import RecommendationQueryService
 from via.bounded_contexts.recommendation.infrastructure.recommendation_query_repository import RecommendationQueryRepository
+from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_current_user as get_recommendation_current_user
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_recommendation_query_service
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import router as recommendation_router
 from via.bounded_contexts.viability_evaluation.application.query_service import EvaluationQueryService
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
+from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import get_current_user as get_evaluation_current_user
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import get_evaluation_query_service, get_process_manager
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import router as evaluation_router
 from via.config import Settings, get_settings
@@ -63,6 +66,14 @@ def create_app() -> FastAPI:
             stop(timeout=10)
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_allowed_origins),
+        # Wildcard origins cannot be combined with credentials per the CORS spec.
+        allow_credentials="*" not in settings.cors_allowed_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.runtime = configure_application_runtime(session_factory=session_factory)
     app.state.event_bus = app.state.runtime.event_bus
     app.state.relay_worker = app.state.runtime.relay_worker
@@ -94,7 +105,8 @@ def _wire_iam_dependencies(
 
     hasher = BcryptPasswordHasher()
     token_svc = JWTTokenService(settings)
-    bearer = HTTPBearer(auto_error=True)
+    # auto_error=False so a missing token yields 401 (not HTTPBearer's 403).
+    bearer = HTTPBearer(auto_error=False)
 
     def _iam_auth_dep() -> Generator[AuthenticateUserCommandService, None, None]:
         session = session_factory()
@@ -114,8 +126,14 @@ def _wire_iam_dependencies(
                 session.close()
 
     def _current_user_dep(
-        credentials: HTTPAuthorizationCredentials = Depends(bearer),
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> User:
+        if credentials is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         try:
             payload = token_svc.decode_access_token(credentials.credentials)
             user_id = UUID(str(payload["sub"]))
@@ -158,6 +176,8 @@ def _wire_iam_dependencies(
     app.dependency_overrides[get_parcel_current_user] = _current_user_dep
     app.dependency_overrides[get_rulebook_current_user] = _current_user_dep
     app.dependency_overrides[get_document_current_user] = _current_user_dep
+    app.dependency_overrides[get_evaluation_current_user] = _current_user_dep
+    app.dependency_overrides[get_recommendation_current_user] = _current_user_dep
 
 
 def _wire_parcel_dependencies(

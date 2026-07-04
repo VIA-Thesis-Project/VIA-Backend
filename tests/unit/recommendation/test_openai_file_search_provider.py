@@ -202,6 +202,7 @@ class RecordingOpenAIClient:
     last_max_num_results: int = 0
     last_include: list[str] | None = None
     last_timeout: int = 0
+    last_max_output_tokens: int | None = None
 
     def create_response(
         self,
@@ -212,6 +213,7 @@ class RecordingOpenAIClient:
         max_num_results: int,
         include: list[str],
         timeout: int,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         self.calls += 1
         self.last_model = model
@@ -220,6 +222,7 @@ class RecordingOpenAIClient:
         self.last_max_num_results = max_num_results
         self.last_include = include
         self.last_timeout = timeout
+        self.last_max_output_tokens = max_output_tokens
         return self.response
 
 
@@ -243,7 +246,7 @@ def _user_content(client: RecordingOpenAIClient) -> str:
 def test_config_reads_openai_api_key_from_env() -> None:
     settings = load_settings(
         {
-            "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+            "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
             "LLM_DRAFTING_PROVIDER": "openai_file_search",
             "OPENAI_API_KEY": "sk-super-secret-key",
             "OPENAI_RAG_MODEL": "gpt-4o-mini",
@@ -270,7 +273,7 @@ def test_vector_store_map_resolves_maiz_amarillo_duro() -> None:
 def test_config_builds_vector_store_map_from_env() -> None:
     settings = load_settings(
         {
-            "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+            "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
             "LLM_DRAFTING_PROVIDER": "openai_file_search",
             "OPENAI_API_KEY": "sk-test",
             "OPENAI_RAG_MODEL": "gpt-4o-mini",
@@ -1300,7 +1303,7 @@ def test_config_openai_file_search_requires_api_key() -> None:
     with pytest.raises(ConfigurationError, match="OPENAI_API_KEY"):
         load_settings(
             {
-                "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+                "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
                 "LLM_DRAFTING_PROVIDER": "openai_file_search",
                 "OPENAI_RAG_MODEL": "gpt-4o-mini",
             }
@@ -1311,7 +1314,7 @@ def test_config_openai_file_search_requires_model() -> None:
     with pytest.raises(ConfigurationError, match="OPENAI_RAG_MODEL"):
         load_settings(
             {
-                "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+                "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
                 "LLM_DRAFTING_PROVIDER": "openai_file_search",
                 "OPENAI_API_KEY": "sk-test",
             }
@@ -1322,7 +1325,7 @@ def test_config_openai_file_search_max_results_must_be_positive() -> None:
     with pytest.raises(ConfigurationError, match="OPENAI_FILE_SEARCH_MAX_RESULTS"):
         load_settings(
             {
-                "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+                "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
                 "LLM_DRAFTING_PROVIDER": "openai_file_search",
                 "OPENAI_API_KEY": "sk-test",
                 "OPENAI_RAG_MODEL": "gpt-4o-mini",
@@ -1334,7 +1337,7 @@ def test_config_openai_file_search_max_results_must_be_positive() -> None:
 def test_config_openai_file_search_valid_settings_load() -> None:
     settings = load_settings(
         {
-            "DATABASE_URL": "postgresql+psycopg2://u:p@h/db",
+            "DATABASE_URL": "postgresql+psycopg2://u:p@localhost/db",
             "LLM_DRAFTING_PROVIDER": "openai_file_search",
             "OPENAI_API_KEY": "sk-test-valid",
             "OPENAI_RAG_MODEL": "gpt-4o-mini",

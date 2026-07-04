@@ -25,7 +25,11 @@ class SQLAlchemyParcelRepository(IParcelRepository):
     def add(self, parcel: Parcel) -> None:
         """Persist a new parcel without committing the transaction."""
 
-        self._session.add(_to_model(parcel))
+        model = _to_model(parcel)
+        self._session.add(model)
+        self._session.flush()
+        self._session.refresh(model)
+        parcel.created_at = model.created_at
 
     def get_by_id(self, parcel_id: UUID) -> Parcel | None:
         """Return one parcel by id regardless of owner."""
@@ -36,7 +40,11 @@ class SQLAlchemyParcelRepository(IParcelRepository):
     def list_by_owner(self, owner_id: UUID) -> list[Parcel]:
         """Return parcels owned by a user."""
 
-        statement = select(ParcelModel).where(ParcelModel.owner_id == owner_id)
+        statement = (
+            select(ParcelModel)
+            .where(ParcelModel.owner_id == owner_id)
+            .order_by(ParcelModel.created_at.desc())
+        )
         return [_to_domain(model) for model in self._session.execute(statement).scalars().all()]
 
     def save(self, parcel: Parcel) -> None:
@@ -76,6 +84,7 @@ def _to_domain(model: ParcelModel) -> Parcel:
         owner_id=model.owner_id,
         geometry=wkt_to_geojson_multipolygon(model.geometry),
         metadata=ParcelMetadata.from_mapping(model.metadata_json),
+        created_at=model.created_at,
     )
 
 

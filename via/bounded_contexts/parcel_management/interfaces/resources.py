@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -37,3 +38,4 @@ class ParcelResponse(BaseModel):
     owner_id: UUID
     geometry: dict[str, Any]
     metadata: ParcelMetadataResource
+    created_at: datetime

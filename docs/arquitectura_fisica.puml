@@ -1,0 +1,72 @@
+@startuml via_infrastructure
+!include <C4/C4_Deployment>
+
+LAYOUT_TOP_DOWN()
+skinparam linetype ortho
+
+title VIA - C4 Deployment
+
+' =============================================
+' CLIENTE
+' =============================================
+Deployment_Node(client, "Cliente HTTP", "Browser / Postman / App movil") {
+  Container(http_client, "HTTP Client", "REST / JSON", "Consume la API REST de VIA.")
+}
+
+' =============================================
+' RENDER.COM
+' =============================================
+Deployment_Node(render, "Render.com", "PaaS") {
+
+  Deployment_Node(via_api_node, "via-api", "Python runtime + uvicorn") {
+    Container(fastapi_app, "FastAPI App", "FastAPI + Python", "Monolito modular con bounded contexts: IAM, parcelas, rulebooks, documentos, extraccion agroambiental, evaluacion MCDA y recomendaciones.")
+    Container(relay_worker, "RelayWorker", "threading.Thread", "Polling del outbox y publicacion de mensajes al Event Bus.")
+    Container(event_bus, "InMemoryEventBus", "Python in-process", "Enruta comandos y eventos entre bounded contexts dentro del proceso.")
+    Container(process_manager, "EvaluationProcessManager", "Saga / Process Manager", "Coordina el flujo: extraccion agroambiental, evaluacion de viabilidad y recomendacion.")
+
+    Rel(fastapi_app, relay_worker, "inicia en lifespan", "Thread")
+    Rel(fastapi_app, process_manager, "inicia evaluaciones", "in-process")
+    Rel(fastapi_app, event_bus, "publica / suscribe", "in-process")
+    Rel(relay_worker, event_bus, "publica mensajes", "in-process")
+  }
+
+  Deployment_Node(via_db_node, "via-postgres", "Render Managed PostgreSQL 15") {
+    ContainerDb(pg_transactional, "schema: transactional", "PostgreSQL + PostGIS + pgvector", "Usuarios, parcelas, rulebooks, sagas, outbox, variables agroambientales, resultados MCDA, brechas, factores limitantes y recomendaciones.")
+    ContainerDb(pg_documental, "schema: documental", "PostgreSQL + pgvector", "Documentos, fragmentos y datos documentales para busqueda/evidencia.")
+  }
+}
+
+' =============================================
+' GOOGLE EARTH ENGINE
+' =============================================
+Deployment_Node(gee_cloud, "Google Cloud", "Earth Engine Platform") {
+  Container(gee_api, "Earth Engine API", "REST + Service Account", "Extraccion de variables agroambientales y geoespaciales.")
+}
+
+' =============================================
+' PROVEEDORES RAG / LLM
+' =============================================
+Deployment_Node(ai_platforms, "Plataformas RAG / LLM", "APIs externas") {
+  Container(openai_api, "OpenAI API", "gpt-4o-mini / File Search / Web Search", "Busqueda de evidencia y generacion de recomendaciones estructuradas.")
+  Container(tavily_api, "Tavily Search API", "Web Search", "Busqueda web agronomica usada por el proveedor tavily_rag.")
+  Container(jina_api, "Jina Reader API", "Reader API opcional", "Extraccion y normalizacion de contenido web.")
+  Container(optional_llm, "Otros proveedores opcionales", "Gemini API / Vertex AI / LLM local", "Alternativas configurables para generacion de borradores.")
+}
+
+' =============================================
+' RELACIONES ENTRE NODOS
+' =============================================
+Rel(http_client, fastapi_app, "HTTPS :443", "REST / JSON + JWT")
+
+Rel(fastapi_app, pg_transactional, "lee/escribe datos transaccionales", "SQLAlchemy sync / psycopg2 / TCP :5432")
+Rel(fastapi_app, pg_documental, "lee/escribe documentos", "SQLAlchemy sync / psycopg2 / TCP :5432")
+Rel(relay_worker, pg_transactional, "lee outbox_messages y marca despachados", "TCP :5432")
+Rel(process_manager, pg_transactional, "persiste estado de saga y comandos", "TCP :5432")
+
+Rel(fastapi_app, gee_api, "Agroenv Extraction BC", "HTTPS + Service Account")
+Rel(fastapi_app, openai_api, "Recommendation BC", "HTTPS + OpenAI SDK")
+Rel(fastapi_app, tavily_api, "Recommendation BC", "HTTPS")
+Rel(fastapi_app, jina_api, "Recommendation BC opcional", "HTTPS")
+Rel(fastapi_app, optional_llm, "Proveedor configurable", "HTTPS / HTTP")
+
+@enduml

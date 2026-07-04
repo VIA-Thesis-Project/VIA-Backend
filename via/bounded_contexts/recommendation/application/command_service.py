@@ -48,7 +48,7 @@ class GenerateRecommendationCommand:
 
     evaluation_id: UUID
     crop_id: str | None = None
-    max_fragments: int = 5
+    max_fragments: int = 8
     persist: bool = True
 
     @classmethod
@@ -58,7 +58,7 @@ class GenerateRecommendationCommand:
         return cls(
             evaluation_id=UUID(str(payload["evaluation_id"])),
             crop_id=payload.get("crop_id"),
-            max_fragments=int(payload.get("max_fragments", 5)),
+            max_fragments=int(payload.get("max_fragments", 8)),
             persist=True,
         )
 
@@ -296,8 +296,9 @@ def _file_search_evidence_from_provider(
         if not text:
             continue
         file_id = str(result.get("file_id") or "").strip()
+        source_url = str(result.get("source_url") or "").strip()
         filename = str(result.get("filename") or "").strip()
-        source_key = file_id or filename or f"result-{index}"
+        source_key = file_id or source_url or filename or f"result-{index}"
         score = result.get("score")
         evidence.append(
             EvidenceData(
@@ -310,7 +311,7 @@ def _file_search_evidence_from_provider(
                 crop_tags=[crop_id],
                 score=score if isinstance(score, (int, float)) and 0.0 <= float(score) <= 1.0 else None,
                 source_filename=filename or None,
-                source_file_id=file_id or None,
+                source_file_id=file_id or source_url or None,
             )
         )
     return evidence
@@ -783,8 +784,11 @@ def _compatible_evidence_refs(item: dict, evidence: list[EvidenceData]) -> list[
     refs = item.get("evidence_used") or []
     compatible_refs: list[dict] = []
     preferred_refs = _preferred_curated_evidence_refs(item, evidence)
+    web_refs = _preferred_web_evidence_refs(item, evidence)
     if _is_soil_physical_item(item):
-        return preferred_refs
+        return preferred_refs or web_refs
+    if web_refs:
+        return web_refs
     for ref in refs:
         if not isinstance(ref, dict):
             continue
@@ -797,6 +801,20 @@ def _compatible_evidence_refs(item: dict, evidence: list[EvidenceData]) -> list[
     if preferred_refs:
         return preferred_refs
     return compatible_refs
+
+
+def _preferred_web_evidence_refs(item: dict, evidence: list[EvidenceData]) -> list[dict]:
+    refs = []
+    for evidence_item in evidence:
+        source_file_id = str(evidence_item.source_file_id or "")
+        if not source_file_id.startswith(("http://", "https://")):
+            continue
+        if not _is_valid_retrieved_evidence_ref(evidence_item):
+            continue
+        if not _evidence_matches_item(item, evidence_item):
+            continue
+        refs.append(_evidence_to_structured_ref(evidence_item))
+    return refs
 
 
 def _preferred_curated_evidence_refs(item: dict, evidence: list[EvidenceData]) -> list[dict]:
