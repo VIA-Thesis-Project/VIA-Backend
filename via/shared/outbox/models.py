@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
 from sqlalchemy import CheckConstraint, DateTime, Integer, String, Text, func
@@ -12,6 +13,26 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from via.shared.database.base import Base, TRANSACTIONAL_SCHEMA
 from via.shared.event_bus.message import Message, MessageKind
+
+_created_at_lock = threading.Lock()
+_last_created_at: datetime | None = None
+
+
+def _next_created_at() -> datetime:
+    """Return a strictly increasing timestamp for outbox ordering.
+
+    The relay dispatches by (created_at, id). A database-side now() default is
+    frozen per transaction, so rows written together would tie and dispatch in
+    random UUID order; this per-process monotonic clock keeps write order.
+    """
+
+    global _last_created_at
+    with _created_at_lock:
+        now = datetime.now(timezone.utc)
+        if _last_created_at is not None and now <= _last_created_at:
+            now = _last_created_at + timedelta(microseconds=1)
+        _last_created_at = now
+        return now
 
 
 class OutboxStatus(StrEnum):
@@ -68,6 +89,7 @@ class OutboxMessageModel(Base):
             payload_json=message.payload,
             correlation_id=message.correlation_id,
             status=OutboxStatus.PENDING.value,
+            created_at=_next_created_at(),
         )
 
     def to_message(self) -> Message:

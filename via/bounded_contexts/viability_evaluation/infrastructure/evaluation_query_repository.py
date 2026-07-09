@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from via.bounded_contexts.agroenv_extraction.infrastructure.orm_models import (
-    AgroenvVariableEntryModel,
-    AgroenvVectorModel,
-)
-from via.bounded_contexts.rulebook_management.domain.phase_requirement import PhaseRequirement
-from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
-from via.bounded_contexts.rulebook_management.infrastructure.rulebook_repository import (
-    SqlAlchemyRulebookRepository,
-)
 from via.bounded_contexts.viability_evaluation.application.ports import (
     AgroenvVariableReadModel,
+    AgroenvVectorData,
     AgroenvVectorReadModel,
     CropResultReadModel,
     GapReadModel,
@@ -35,18 +28,33 @@ from via.shared.orchestration.evaluation_process_manager.saga_orm import (
 )
 from via.shared.orchestration.evaluation_process_manager.states import EvaluationSagaStatus
 
+RulebookMetadataByCrop = dict[str, dict[tuple[str, str], dict[str, str]]]
+
 
 class EvaluationQueryRepository:
     """Concrete read repository implementing IEvaluationQueryPort.
 
     Owns all SQLAlchemy SELECT concerns; the application query service
     depends on IEvaluationQueryPort, never on this class directly.
+
+    Cross-context reads (rulebook display metadata, agroenvironmental
+    vector) are injected as callables wired at the composition root
+    (via.shared.runtime.bridges), so this module never imports other
+    bounded contexts. Without them the repository still works and simply
+    omits the optional display metadata / vector.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        rulebook_metadata_source: Callable[[list[str]], RulebookMetadataByCrop] | None = None,
+        agroenv_vector_source: Callable[[UUID], AgroenvVectorData | None] | None = None,
+    ) -> None:
         """Create the repository bound to a synchronous SQLAlchemy session."""
 
         self._session = session
+        self._rulebook_metadata_source = rulebook_metadata_source
+        self._agroenv_vector_source = agroenv_vector_source
 
     def find_saga_snapshot(self, evaluation_id: UUID) -> SagaSnapshot | None:
         """Return current saga status, last transition and failure reason, or None."""
@@ -79,44 +87,46 @@ class EvaluationQueryRepository:
             select(EvaluationResultModel)
             .where(EvaluationResultModel.evaluation_id == evaluation_id)
         ).scalars().all()
-        metadata = _load_rulebook_metadata(self._session, [row.crop_id for row in result_rows])
+        metadata = self._load_rulebook_metadata([row.crop_id for row in result_rows])
 
         return [self._build_crop_result(row, metadata.get(row.crop_id, {})) for row in result_rows]
 
     def find_agroenv_vector(self, evaluation_id: UUID) -> AgroenvVectorReadModel | None:
         """Return the persisted agroenvironmental vector for an evaluation."""
 
-        vector = self._session.execute(
-            select(AgroenvVectorModel).where(AgroenvVectorModel.evaluation_id == evaluation_id)
-        ).scalars().first()
+        if self._agroenv_vector_source is None:
+            return None
+        vector = self._agroenv_vector_source(evaluation_id)
         if vector is None:
             return None
 
-        entries = self._session.execute(
-            select(AgroenvVariableEntryModel).where(AgroenvVariableEntryModel.vector_id == vector.id)
-        ).scalars().all()
-        metadata = _load_rulebook_metadata(self._session, [entry.crop_id for entry in entries])
+        metadata = self._load_rulebook_metadata([v.crop_id for v in vector.variables])
         return AgroenvVectorReadModel(
             evaluation_id=vector.evaluation_id,
             parcel_id=vector.parcel_id,
             variables=[
                 AgroenvVariableReadModel(
-                    variable_name=entry.variable_name,
-                    criterion_id=entry.criterion_id,
-                    crop_id=entry.crop_id,
-                    phase_id=entry.phase_id,
-                    period_key=entry.period_key,
-                    value=float(entry.value) if entry.value is not None else None,
-                    unit=entry.unit,
-                    status=entry.status,
-                    dataset_key=entry.dataset_key,
-                    band=entry.band,
-                    source=entry.source,
-                    **_metadata_for_vector(metadata, entry.crop_id, entry.criterion_id, entry.phase_id),
+                    variable_name=v.variable_name,
+                    criterion_id=v.criterion_id,
+                    crop_id=v.crop_id,
+                    phase_id=v.phase_id,
+                    period_key=v.period_key,
+                    value=v.value,
+                    unit=v.unit,
+                    status=v.status,
+                    dataset_key=v.dataset_key,
+                    band=v.band,
+                    source=v.source,
+                    **_metadata_for_vector(metadata, v.crop_id, v.criterion_id, v.phase_id),
                 )
-                for entry in entries
+                for v in vector.variables
             ],
         )
+
+    def _load_rulebook_metadata(self, crop_ids: list[str]) -> RulebookMetadataByCrop:
+        if self._rulebook_metadata_source is None:
+            return {}
+        return self._rulebook_metadata_source(crop_ids)
 
     def _build_crop_result(
         self,
@@ -144,6 +154,7 @@ class EvaluationQueryRepository:
                     observed_value=float(g.observed_value),
                     optimal_limit=float(g.optimal_limit),
                     gap_value=float(g.gap_value),
+                    membership=float(g.membership) if g.membership is not None else None,
                     **metadata_by_pair.get((g.criterion_id, g.phase_id), {}),
                 )
                 for g in gaps
@@ -175,42 +186,8 @@ class EvaluationQueryRepository:
         return t.failure_cause if t else None
 
 
-def _load_rulebook_metadata(
-    session: Session,
-    crop_ids: list[str],
-) -> dict[str, dict[tuple[str, str], dict[str, str]]]:
-    metadata: dict[str, dict[tuple[str, str], dict[str, str]]] = {}
-    repo = SqlAlchemyRulebookRepository(session)
-    for crop_id in dict.fromkeys(crop_ids):
-        rulebook = repo.get_active_by_crop(crop_id)
-        metadata[crop_id] = _rulebook_metadata(rulebook) if rulebook is not None else {}
-    return metadata
-
-
-def _rulebook_metadata(rulebook: Rulebook) -> dict[tuple[str, str], dict[str, str]]:
-    criteria_by_id = {str(c.id): c for c in rulebook.criteria}
-    phases_by_id = {str(p.id): p for p in rulebook.phases}
-    metadata: dict[tuple[str, str], dict[str, str]] = {}
-    for requirement in rulebook.phase_requirements:
-        criterion_id = str(requirement.criterion_id)
-        phase_id = str(requirement.phase_id)
-        criterion = criteria_by_id.get(criterion_id)
-        phase = phases_by_id.get(phase_id)
-        if criterion is None or phase is None:
-            continue
-        metadata[(criterion_id, phase_id)] = {
-            "criterion_name": criterion.name,
-            "criterion_label": _humanize_label(criterion.name),
-            "criterion_group": _criterion_group(requirement),
-            "phase_name": phase.name,
-            "unit": requirement.extraction_binding.unit,
-            "intervention_class": criterion.intervention_class.value,
-        }
-    return metadata
-
-
 def _metadata_for_pair(
-    metadata: dict[str, dict[tuple[str, str], dict[str, str]]],
+    metadata: RulebookMetadataByCrop,
     crop_id: str,
     criterion_id: str,
     phase_id: str,
@@ -219,7 +196,7 @@ def _metadata_for_pair(
 
 
 def _metadata_for_vector(
-    metadata: dict[str, dict[tuple[str, str], dict[str, str]]],
+    metadata: RulebookMetadataByCrop,
     crop_id: str,
     criterion_id: str,
     phase_id: str,
@@ -227,29 +204,3 @@ def _metadata_for_vector(
     values = _metadata_for_pair(metadata, crop_id, criterion_id, phase_id)
     values.pop("unit", None)
     return values
-
-
-def _humanize_label(value: str) -> str:
-    return value.replace("_", " ").strip().capitalize()
-
-
-def _criterion_group(requirement: PhaseRequirement) -> str:
-    source = " ".join(
-        [
-            requirement.extraction_binding.variable_name,
-            requirement.extraction_binding.dataset_key,
-            requirement.extraction_binding.band,
-            requirement.extraction_binding.unit,
-        ]
-    ).lower()
-    if any(term in source for term in ("temp", "precip", "rain", "clima", "chirps", "era5")):
-        return "clima"
-    if any(term in source for term in ("ece", "conductividad", "salinity", "salinidad")):
-        return "salinidad"
-    if any(term in source for term in ("soil", "ph", "arcilla", "arena", "carbon", "suelo")):
-        return "suelo"
-    if any(term in source for term in ("elevation", "altitud", "slope", "pendiente", "dem")):
-        return "topografia"
-    if any(term in source for term in ("ndvi", "evi", "savi", "veget")):
-        return "vegetacion"
-    return "agroambiental"

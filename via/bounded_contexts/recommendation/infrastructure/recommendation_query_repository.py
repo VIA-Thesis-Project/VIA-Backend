@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,12 +22,22 @@ class RecommendationQueryRepository:
 
     Owns all SQLAlchemy SELECT concerns; the query service depends on
     IRecommendationQueryPort, never on this class directly.
+
+    The top-ranked crop lookup crosses into viability_evaluation data, so it
+    is injected as a callable wired at the composition root
+    (via.shared.runtime.bridges). Without it the final recommendation falls
+    back to the most recently generated one.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        top_ranked_crop_source: Callable[[UUID], str | None] | None = None,
+    ) -> None:
         """Create the repository bound to a synchronous SQLAlchemy session."""
 
         self._session = session
+        self._top_ranked_crop_source = top_ranked_crop_source
 
     def find_by_id(self, recommendation_id: UUID) -> RecommendationReadModel | None:
         """Return recommendation by its primary key, or None when not found."""
@@ -52,18 +63,35 @@ class RecommendationQueryRepository:
         return [self._build(row, parcel_id) for row in rows]
 
     def find_final_for_evaluation(self, evaluation_id: UUID) -> FinalRecommendationResult:
-        """Return whether the evaluation exists and its most recent recommendation."""
+        """Return whether the evaluation exists and its final recommendation.
+
+        The final recommendation is the one for the top-ranked crop of the
+        evaluation; when the ranking is unavailable it falls back to the most
+        recently generated recommendation.
+        """
 
         saga = self._session.get(EvaluationSagaModel, evaluation_id)
         if saga is None:
             return FinalRecommendationResult(evaluation_found=False, recommendation=None)
 
-        row = self._session.execute(
-            select(RecommendationModel)
-            .where(RecommendationModel.evaluation_id == evaluation_id)
-            .order_by(RecommendationModel.generated_at.desc())
-            .limit(1)
-        ).scalars().first()
+        row = None
+        top_crop = self._top_ranked_crop_source(evaluation_id) if self._top_ranked_crop_source else None
+        if top_crop is not None:
+            row = self._session.execute(
+                select(RecommendationModel)
+                .where(RecommendationModel.evaluation_id == evaluation_id)
+                .where(RecommendationModel.crop_id == top_crop)
+                .order_by(RecommendationModel.generated_at.desc())
+                .limit(1)
+            ).scalars().first()
+
+        if row is None:
+            row = self._session.execute(
+                select(RecommendationModel)
+                .where(RecommendationModel.evaluation_id == evaluation_id)
+                .order_by(RecommendationModel.generated_at.desc())
+                .limit(1)
+            ).scalars().first()
 
         if row is None:
             return FinalRecommendationResult(evaluation_found=True, recommendation=None)

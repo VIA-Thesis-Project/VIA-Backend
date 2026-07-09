@@ -32,6 +32,7 @@ class GapReadModel:
     observed_value: float
     optimal_limit: float
     gap_value: float
+    membership: float | None = None
     criterion_name: str | None = None
     criterion_label: str | None = None
     criterion_group: str | None = None

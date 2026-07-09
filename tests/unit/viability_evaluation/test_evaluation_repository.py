@@ -120,6 +120,7 @@ def test_orm_columns_match_initial_migration_for_evaluation_result_tables() -> N
             "observed_value",
             "optimal_limit",
             "gap_value",
+            "membership",
         },
         LimitingFactorModel: {
             "id",
@@ -228,6 +229,7 @@ def _complete_crop_result(
                 observed_value=18.0,
                 optimal_limit=22.0,
                 gap_value=-4.0,
+                membership=0.4,
             )
         ],
         limiting_factors=[

@@ -27,6 +27,9 @@ from via.bounded_contexts.recommendation.application.ports import (
     GapData,
     LimitingFactorData,
 )
+from via.bounded_contexts.recommendation.infrastructure.recommendation_query_repository import (
+    RecommendationQueryRepository,
+)
 from via.bounded_contexts.rulebook_management.application.query_service import RulebookQueryService
 from via.bounded_contexts.rulebook_management.domain.rulebook import Rulebook
 from via.bounded_contexts.rulebook_management.domain.phase_requirement import PhaseRequirement
@@ -38,6 +41,7 @@ from via.bounded_contexts.viability_evaluation.application.ports import (
     RulebookEvaluationData,
 )
 from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
+from via.bounded_contexts.viability_evaluation.infrastructure.orm_models import EvaluationResultModel
 from via.shared.orchestration.evaluation_process_manager.ports import (
     ParcelGeometrySnapshot,
     RequiredExtractionSpec,
@@ -147,39 +151,123 @@ class SqlAlchemyAgroenvVectorBridge:
 
         session = self._session_factory()
         try:
-            vector_model = session.execute(
-                select(AgroenvVectorModel).where(AgroenvVectorModel.evaluation_id == evaluation_id)
-            ).scalars().first()
-            if vector_model is None:
+            vector = _find_agroenv_vector_data(session, evaluation_id)
+            if vector is None:
                 raise ValueError(f"No agroenv vector found for evaluation: {evaluation_id}")
-            entry_models = session.execute(
-                select(AgroenvVariableEntryModel).where(
-                    AgroenvVariableEntryModel.vector_id == vector_model.id
-                )
-            ).scalars().all()
-            variables = [
-                AgroenvVariableData(
-                    variable_name=e.variable_name,
-                    criterion_id=e.criterion_id,
-                    crop_id=e.crop_id,
-                    phase_id=e.phase_id,
-                    period_key=e.period_key,
-                    value=float(e.value) if e.value is not None else None,
-                    unit=e.unit,
-                    status=e.status,
-                    dataset_key=e.dataset_key,
-                    band=e.band,
-                    source=e.source,
-                )
-                for e in entry_models
-            ]
-            return AgroenvVectorData(
-                evaluation_id=vector_model.evaluation_id,
-                parcel_id=vector_model.parcel_id,
-                variables=variables,
-            )
+            return vector
         finally:
             session.close()
+
+
+# ─── IEvaluationQueryPort factory ─────────────────────────────────────────────
+
+
+def build_evaluation_query_repository(session: Session) -> EvaluationQueryRepository:
+    """Wire EvaluationQueryRepository with its cross-context read sources.
+
+    The repository itself never imports rulebook_management or
+    agroenv_extraction; this composition-root factory injects both reads.
+    """
+
+    return EvaluationQueryRepository(
+        session,
+        rulebook_metadata_source=lambda crop_ids: _load_evaluation_rulebook_metadata(session, crop_ids),
+        agroenv_vector_source=lambda evaluation_id: _find_agroenv_vector_data(session, evaluation_id),
+    )
+
+
+def _find_agroenv_vector_data(session: Session, evaluation_id: UUID) -> AgroenvVectorData | None:
+    vector_model = session.execute(
+        select(AgroenvVectorModel).where(AgroenvVectorModel.evaluation_id == evaluation_id)
+    ).scalars().first()
+    if vector_model is None:
+        return None
+    entry_models = session.execute(
+        select(AgroenvVariableEntryModel).where(
+            AgroenvVariableEntryModel.vector_id == vector_model.id
+        )
+    ).scalars().all()
+    variables = [
+        AgroenvVariableData(
+            variable_name=e.variable_name,
+            criterion_id=e.criterion_id,
+            crop_id=e.crop_id,
+            phase_id=e.phase_id,
+            period_key=e.period_key,
+            value=float(e.value) if e.value is not None else None,
+            unit=e.unit,
+            status=e.status,
+            dataset_key=e.dataset_key,
+            band=e.band,
+            source=e.source,
+        )
+        for e in entry_models
+    ]
+    return AgroenvVectorData(
+        evaluation_id=vector_model.evaluation_id,
+        parcel_id=vector_model.parcel_id,
+        variables=variables,
+    )
+
+
+def _load_evaluation_rulebook_metadata(
+    session: Session,
+    crop_ids: list[str],
+) -> dict[str, dict[tuple[str, str], dict[str, str]]]:
+    metadata: dict[str, dict[tuple[str, str], dict[str, str]]] = {}
+    repo = SqlAlchemyRulebookRepository(session)
+    for crop_id in dict.fromkeys(crop_ids):
+        rulebook = repo.get_active_by_crop(crop_id)
+        metadata[crop_id] = _rulebook_evaluation_metadata(rulebook) if rulebook is not None else {}
+    return metadata
+
+
+def _rulebook_evaluation_metadata(rulebook: Rulebook) -> dict[tuple[str, str], dict[str, str]]:
+    criteria_by_id = {str(c.id): c for c in rulebook.criteria}
+    phases_by_id = {str(p.id): p for p in rulebook.phases}
+    metadata: dict[tuple[str, str], dict[str, str]] = {}
+    for requirement in rulebook.phase_requirements:
+        criterion_id = str(requirement.criterion_id)
+        phase_id = str(requirement.phase_id)
+        criterion = criteria_by_id.get(criterion_id)
+        phase = phases_by_id.get(phase_id)
+        if criterion is None or phase is None:
+            continue
+        metadata[(criterion_id, phase_id)] = {
+            "criterion_name": criterion.name,
+            "criterion_label": _humanize_label(criterion.name),
+            "criterion_group": _criterion_group(requirement),
+            "phase_name": phase.name,
+            "unit": requirement.extraction_binding.unit,
+            "intervention_class": criterion.intervention_class.value,
+        }
+    return metadata
+
+
+# ─── IRecommendationQueryPort factory ─────────────────────────────────────────
+
+
+def build_recommendation_query_repository(session: Session) -> RecommendationQueryRepository:
+    """Wire RecommendationQueryRepository with the top-ranked crop read source.
+
+    The repository never imports viability_evaluation; this composition-root
+    factory injects the ranking lookup so the final recommendation targets the
+    top-ranked crop of the evaluation.
+    """
+
+    return RecommendationQueryRepository(
+        session,
+        top_ranked_crop_source=lambda evaluation_id: _find_top_ranked_crop(session, evaluation_id),
+    )
+
+
+def _find_top_ranked_crop(session: Session, evaluation_id: UUID) -> str | None:
+    return session.execute(
+        select(EvaluationResultModel.crop_id)
+        .where(EvaluationResultModel.evaluation_id == evaluation_id)
+        .where(EvaluationResultModel.rank_position == 1)
+        .limit(1)
+    ).scalars().first()
 
 
 # ─── IEvaluationResultsPort bridge ────────────────────────────────────────────
@@ -274,7 +362,7 @@ def _crop_result_to_recommendation_data(
                 observed_value=g.observed_value,
                 optimal_limit=g.optimal_limit,
                 gap_value=g.gap_value,
-                **_gap_metadata(metadata_by_pair, g.criterion_id, g.phase_id, g.gap_value),
+                **_gap_metadata(metadata_by_pair, g.criterion_id, g.phase_id, g.gap_value, getattr(g, "membership", None)),
             )
             for g in result.gaps
         ],
@@ -288,7 +376,7 @@ def _crop_result_to_recommendation_data(
                 optimal_limit=lf.optimal_limit,
                 membership=lf.membership,
                 doc_source=lf.doc_source,
-                **_gap_metadata(metadata_by_pair, lf.criterion_id, lf.phase_id, lf.observed_value - lf.optimal_limit),
+                **_gap_metadata(metadata_by_pair, lf.criterion_id, lf.phase_id, lf.observed_value - lf.optimal_limit, lf.membership),
             )
             for lf in result.limiting_factors
         ],
@@ -338,10 +426,17 @@ def _gap_metadata(
     criterion_id: str,
     phase_id: str,
     gap_value: float,
+    membership: float | None = None,
 ) -> dict[str, str]:
     metadata = dict(metadata_by_pair.get((criterion_id, phase_id), {}))
     metadata["gap_direction"] = _gap_direction(gap_value)
-    metadata["severity"] = _gap_severity(gap_value)
+    # Severity follows the paper's definition sev = 1 - membership (normalized,
+    # unit-independent). Fall back to the physical-magnitude band only when the
+    # membership is unavailable (e.g. legacy rows persisted before the column).
+    if membership is not None:
+        metadata["severity"] = _severity_from_membership(membership)
+    else:
+        metadata["severity"] = _gap_severity(gap_value)
     return metadata
 
 
@@ -393,7 +488,26 @@ def _gap_direction(gap_value: float) -> str:
     return "at_optimum"
 
 
+def _severity_from_membership(membership: float) -> str:
+    """Map severity = 1 - membership (paper eq. 15) to an ordinal band.
+
+    Unlike the physical-magnitude band, this is normalized to [0, 1] and
+    therefore comparable across criteria regardless of their unit.
+    """
+
+    severity = 1.0 - float(membership)
+    if severity <= 0.0:
+        return "sin_brecha"
+    if severity < 0.34:
+        return "baja"
+    if severity < 0.67:
+        return "media"
+    return "alta"
+
+
 def _gap_severity(gap_value: float) -> str:
+    """Legacy magnitude-based band, retained as a fallback when membership is absent."""
+
     magnitude = abs(float(gap_value))
     if magnitude == 0:
         return "sin_brecha"

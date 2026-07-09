@@ -65,6 +65,7 @@ class EvaluationRepository:
                         observed_value=_decimal(gap.observed_value),
                         optimal_limit=_decimal(gap.optimal_limit),
                         gap_value=_decimal(gap.gap_value),
+                        membership=_decimal(gap.membership),
                     )
                 )
 

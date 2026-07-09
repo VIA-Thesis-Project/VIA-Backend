@@ -189,6 +189,7 @@ class GapCalculationService:
                     observed_value=observed_value,
                     optimal_limit=optimal_limit,
                     gap_value=float(observed_value) - float(optimal_limit),
+                    membership=float(trace.period_memberships[most_limiting_period]),
                 )
             )
         return gaps

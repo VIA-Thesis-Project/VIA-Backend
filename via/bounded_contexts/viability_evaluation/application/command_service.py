@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterator, Protocol
 from uuid import UUID
 
@@ -254,16 +254,28 @@ class PureMcdaEvaluationEngine:
         # ── Pass 2: per-crop hybrid weights, policies and scoring ───────────────
         crop_results: list[CropResult] = []
         for crop_pass in crop_passes:
+            # The global entropy vector is keyed by the cross-crop alignment key
+            # (variable_name); remap it onto THIS crop's criterion_ids so it can be
+            # blended with the crop's AHP weights (which are keyed by criterion_id).
+            entropy_by_criterion = None
+            if entropy_result.weights is not None:
+                entropy_by_criterion = {
+                    criterion_id: entropy_result.weights[key]
+                    for criterion_id, key in crop_pass.entropy_key_by_criterion.items()
+                    if criterion_id in crop_pass.w_ahp and key in entropy_result.weights
+                }
             w_hybrid = self._hybrid_service.combine(
                 crop_pass.w_ahp,
-                entropy_result.weights,
+                entropy_by_criterion,
                 alpha=settings.mcda_alpha,
             )
             enriched_details = [
                 detail.with_entropy_weights(
-                    w_entropy=None if entropy_result.weights is None else entropy_result.weights.get(detail.criterion_id),
+                    w_entropy=None if entropy_result.weights is None else entropy_result.weights.get(
+                        crop_pass.entropy_key_by_criterion.get(detail.criterion_id)
+                    ),
                     w_hybrid=w_hybrid[detail.criterion_id],
-                    entropy_used=detail.criterion_id in entropy_result.qualified_criteria,
+                    entropy_used=crop_pass.entropy_key_by_criterion.get(detail.criterion_id) in entropy_result.qualified_criteria,
                     entropy_fallback_reason=entropy_result.fallback_reason,
                 )
                 for detail in crop_pass.details
@@ -340,6 +352,12 @@ class _CropPass1:
     all_ahp_weights: dict[str, float]
     aggregated: dict[str, float]
     critical_criteria: set[str]
+    entropy_key_by_criterion: dict[str, str] = field(default_factory=dict)
+    """Maps this crop's per-crop criterion_id (UUID) to a cross-crop alignment key
+    (the criterion's variable_name). The cross-crop entropy compares the SAME
+    logical criterion across candidate crops, but criterion_ids are unique per
+    crop; without this alignment the decision matrix never lines criteria up and
+    entropy always falls back to pure AHP."""
 
 
 def _criterion_pass_for_crop(rulebook: RulebookEvaluationData, vector: AgroenvVectorData) -> _CropPass1:
@@ -361,6 +379,10 @@ def _criterion_pass_for_crop(rulebook: RulebookEvaluationData, vector: AgroenvVe
         for criterion in rulebook.criteria
         if criterion.critical_policy in {CriticalPolicy.NO_VIABLE.value, CriticalPolicy.PENALIZE.value}
     }
+    # Cross-crop alignment key for entropy: the criterion's variable_name is shared
+    # across crops for the same logical criterion (e.g. aptitud_termica), unlike the
+    # per-crop criterion_id.
+    entropy_key_by_criterion = {spec.criterion_id: spec.variable_name for spec in rulebook.criteria}
     return _CropPass1(
         rulebook=rulebook,
         details=details,
@@ -371,22 +393,26 @@ def _criterion_pass_for_crop(rulebook: RulebookEvaluationData, vector: AgroenvVe
         all_ahp_weights=all_ahp_weights,
         aggregated=aggregated,
         critical_criteria=critical_criteria,
+        entropy_key_by_criterion=entropy_key_by_criterion,
     )
 
 
 def _build_decision_matrix(crop_passes: list[_CropPass1]) -> dict[str, dict[str, float]]:
     """Assemble the crops x criteria decision matrix of aggregated memberships.
 
-    Columns are naturally ragged: a criterion appears only for the crops that
-    have it with valid data. EntropyWeightsService handles the irregularity
-    per-criterion.
+    Columns are keyed by the cross-crop alignment key (variable_name) rather than
+    the per-crop criterion_id, so the same logical criterion lines up across the
+    candidate crops. Columns are naturally ragged: a criterion appears only for
+    the crops that have it with valid data. EntropyWeightsService handles the
+    irregularity per-criterion.
     """
 
     matrix: dict[str, dict[str, float]] = {}
     for crop_pass in crop_passes:
         crop_id = crop_pass.rulebook.crop_id
         for criterion_id, membership in crop_pass.aggregated.items():
-            matrix.setdefault(criterion_id, {})[crop_id] = membership
+            key = crop_pass.entropy_key_by_criterion.get(criterion_id, criterion_id)
+            matrix.setdefault(key, {})[crop_id] = membership
     return matrix
 
 

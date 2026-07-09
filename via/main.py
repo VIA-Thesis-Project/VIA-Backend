@@ -34,17 +34,16 @@ from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import 
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import get_rulebook_command_service, get_rulebook_query_service
 from via.bounded_contexts.rulebook_management.interfaces.rulebook_router import router as rulebook_router
 from via.bounded_contexts.recommendation.application.recommendation_query_service import RecommendationQueryService
-from via.bounded_contexts.recommendation.infrastructure.recommendation_query_repository import RecommendationQueryRepository
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_current_user as get_recommendation_current_user
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import get_recommendation_query_service
 from via.bounded_contexts.recommendation.interfaces.recommendation_router import router as recommendation_router
 from via.bounded_contexts.viability_evaluation.application.query_service import EvaluationQueryService
-from via.bounded_contexts.viability_evaluation.infrastructure.evaluation_query_repository import EvaluationQueryRepository
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import get_current_user as get_evaluation_current_user
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import get_evaluation_query_service, get_process_manager
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import router as evaluation_router
 from via.config import Settings, get_settings
 from via.shared.database.session import get_session_factory
+from via.shared.runtime.bridges import build_evaluation_query_repository, build_recommendation_query_repository
 from via.shared.orchestration.evaluation_process_manager.process_manager import EvaluationProcessManager
 from via.shared.runtime.application_runtime import configure_application_runtime
 
@@ -249,7 +248,7 @@ def _wire_recommendation_dependencies(
     def _recommendation_query_dep() -> Generator[RecommendationQueryService, None, None]:
         session = session_factory()
         try:
-            yield RecommendationQueryService(RecommendationQueryRepository(session))
+            yield RecommendationQueryService(build_recommendation_query_repository(session))
         finally:
             session.close()
 
@@ -268,7 +267,7 @@ def _wire_evaluation_dependencies(
     def _evaluation_query_dep() -> Generator[EvaluationQueryService, None, None]:
         session = session_factory()
         try:
-            yield EvaluationQueryService(EvaluationQueryRepository(session))
+            yield EvaluationQueryService(build_evaluation_query_repository(session))
         finally:
             session.close()
 

@@ -27,6 +27,28 @@ _SKIP_REASON = (
 _REPO_ROOT = pathlib.Path(__file__).parents[3]
 
 
+class _RelayWorkerDisabled:
+    """Placeholder without start/stop so the app lifespan does not launch the
+    background RelayWorker thread."""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_app_background_relay_worker(pg_database_url):
+    """Keep the module-level app's RelayWorker thread out of these tests.
+
+    Tests in this package drive outbox relaying manually wave by wave. The
+    background thread started by the app lifespan polls the same outbox table
+    and, with FOR UPDATE SKIP LOCKED, would steal messages and advance sagas
+    through production-wired consumers, making results nondeterministic.
+    """
+    from via.main import app
+
+    original = app.state.relay_worker
+    app.state.relay_worker = _RelayWorkerDisabled()
+    yield
+    app.state.relay_worker = original
+
+
 @pytest.fixture(scope="session")
 def pg_database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")

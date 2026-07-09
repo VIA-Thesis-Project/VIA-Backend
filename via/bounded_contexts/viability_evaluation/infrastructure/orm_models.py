@@ -63,6 +63,7 @@ class AgronomyGapModel(Base):
     observed_value: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
     optimal_limit: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
     gap_value: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    membership: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
 
 
 class LimitingFactorModel(Base):

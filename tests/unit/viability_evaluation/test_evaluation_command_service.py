@@ -315,6 +315,56 @@ def test_papa_altitudinal_critical_zero_still_forces_no_viable() -> None:
     assert result.limiting_factors[0].criterion_id == "aptitud_altitudinal"
 
 
+def test_cross_crop_entropy_aligns_criteria_by_variable_not_per_crop_id() -> None:
+    # Each crop owns per-crop-unique criterion_ids (as in production, where the id
+    # is derived from the crop). The same logical criterion is shared across crops
+    # only through its variable_name. Entropy must align on that shared key;
+    # otherwise every decision-matrix column has a single crop, falls below
+    # min_alternatives, and silently degrades to pure AHP.
+    crops = {"maiz": (18.0, 4.0), "papa": (9.0, 12.0), "vid": (24.0, 2.0)}
+    rulebooks = [
+        _multi_rulebook(
+            [
+                _spec(f"temperatura__{crop}", "temperatura", 0.6, {"a": 5.0, "b": 15.0, "c": 25.0, "d": 30.0}),
+                _spec(f"pendiente__{crop}", "pendiente", 0.4, {"a": 0.0, "b": 0.0, "c": 8.0, "d": 15.0}),
+            ],
+            crop_id=crop,
+        )
+        for crop in crops
+    ]
+    variables = []
+    for crop, (temp, slope) in crops.items():
+        for criterion_id, variable_name, value in (
+            (f"temperatura__{crop}", "temperatura", temp),
+            (f"pendiente__{crop}", "pendiente", slope),
+        ):
+            variables.append(
+                AgroenvVariableData(
+                    variable_name=variable_name,
+                    criterion_id=criterion_id,
+                    crop_id=crop,
+                    phase_id="potencial",
+                    period_key="anual",
+                    value=value,
+                    unit="demo",
+                    status="OK",
+                    dataset_key="gee",
+                    band=variable_name,
+                    source="stub",
+                )
+            )
+    vector = AgroenvVectorData(evaluation_id=UUID(_EVALUATION_ID), parcel_id=uuid4(), variables=variables)
+
+    evaluation = PureMcdaEvaluationEngine().evaluate(_command(), vector, rulebooks, _settings())
+
+    entropy_used_flags = [
+        detail.entropy_used
+        for result in evaluation.crop_results
+        for detail in result.criterion_details
+    ]
+    assert any(entropy_used_flags), "cross-crop entropy must fire when criteria align by variable_name"
+
+
 def test_vector_brechas_generado_contains_real_calculated_gaps() -> None:
     evaluation = PureMcdaEvaluationEngine().evaluate(_command(), _vector([("2026-01", 5.0), ("2026-02", 15.0)]), [_rulebook()], _settings())
 

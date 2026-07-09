@@ -95,7 +95,11 @@ from via.shared.event_bus.in_memory_event_bus import InMemoryEventBus
 from via.shared.orchestration.evaluation_process_manager.process_manager import EvaluationProcessManager
 from via.shared.orchestration.evaluation_process_manager.states import EvaluationSagaStatus
 from via.shared.outbox.relay_worker import RelayWorker
-from via.shared.runtime.bridges import SqlAlchemyAgroenvVectorBridge, SqlAlchemyEvaluationResultsBridge
+from via.shared.runtime.bridges import (
+    SqlAlchemyAgroenvVectorBridge,
+    SqlAlchemyEvaluationResultsBridge,
+    build_recommendation_query_repository,
+)
 from via.shared.runtime.event_bus_registration import register_recommendation_saga_flow
 
 
@@ -280,7 +284,7 @@ def pg26a_client(pg26a_process_manager, pg26a_session_factory, pg26a_cleanup):
     def _rec_qs_dep() -> Generator[RecommendationQueryService, None, None]:
         session = pg26a_session_factory()
         try:
-            yield RecommendationQueryService(RecommendationQueryRepository(session))
+            yield RecommendationQueryService(build_recommendation_query_repository(session))
         finally:
             session.close()
 

@@ -56,6 +56,7 @@ def test_agronomy_gap_keeps_most_limiting_period() -> None:
         observed_value=12.0,
         optimal_limit=18.0,
         gap_value=6.0,
+        membership=0.3,
     )
 
     assert gap.most_limiting_period == "2026-W02"

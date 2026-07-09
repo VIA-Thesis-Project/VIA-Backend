@@ -399,6 +399,28 @@ def drive_saga_to_completion(
 # ──────────────────────────── fixtures ────────────────────────────────────────
 
 
+class _RelayWorkerDisabled:
+    """Placeholder without start/stop so the app lifespan does not launch the
+    background RelayWorker thread."""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_app_background_relay_worker():
+    """Keep the module-level app's RelayWorker thread out of the E2E session.
+
+    These tests relay outbox messages manually with LockFreeRelayWorker over
+    SQLite. The app lifespan would otherwise start a background thread polling
+    the DATABASE_URL database for the whole pytest session, interfering with
+    any other test package that shares that database.
+    """
+    from via.main import app
+
+    original = app.state.relay_worker
+    app.state.relay_worker = _RelayWorkerDisabled()
+    yield
+    app.state.relay_worker = original
+
+
 @pytest.fixture(scope="session")
 def e2e_db_files():
     main_file = tempfile.mktemp(suffix="_via_e2e_main.db")
