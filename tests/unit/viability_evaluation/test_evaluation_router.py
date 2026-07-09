@@ -33,10 +33,10 @@ class FakeProcessManager:
         self.evaluation_id = evaluation_id
         self.calls = []
 
-    def start_evaluation(self, parcel_id, requested_by, crop_candidates, temporal_window):
+    def start_evaluation(self, parcel_id, requested_by, crop_candidates, temporal_window, mcda_params=None):
         """Record input and return a precomputed evaluation id."""
 
-        self.calls.append((parcel_id, requested_by, crop_candidates, temporal_window))
+        self.calls.append((parcel_id, requested_by, crop_candidates, temporal_window, mcda_params))
         return self.evaluation_id
 
 
@@ -80,6 +80,60 @@ def test_start_evaluation_uses_authenticated_user_as_requested_by() -> None:
 
 def test_start_evaluation_request_has_no_requested_by_field() -> None:
     assert "requested_by" not in StartEvaluationRequest.model_fields
+
+
+def test_start_evaluation_forwards_user_defined_thresholds() -> None:
+    process_manager = FakeProcessManager(uuid4())
+
+    start_evaluation(
+        StartEvaluationRequest(
+            parcel_id=uuid4(),
+            crop_candidates=["cacao"],
+            temporal_window={"start": "2026-01-01", "end": "2026-03-31"},
+            viable_threshold=0.65,
+            condicional_threshold=0.35,
+        ),
+        FakeUser(id=uuid4()),
+        process_manager,
+    )
+
+    assert process_manager.calls[0][4] == {"viable_threshold": 0.65, "condicional_threshold": 0.35}
+
+
+def test_start_evaluation_without_thresholds_sends_none_params() -> None:
+    process_manager = FakeProcessManager(uuid4())
+
+    start_evaluation(
+        StartEvaluationRequest(
+            parcel_id=uuid4(),
+            crop_candidates=["cacao"],
+            temporal_window={"start": "2026-01-01", "end": "2026-03-31"},
+        ),
+        FakeUser(id=uuid4()),
+        process_manager,
+    )
+
+    assert process_manager.calls[0][4] is None
+
+
+def test_start_evaluation_rejects_condicional_not_below_viable() -> None:
+    process_manager = FakeProcessManager(uuid4())
+
+    with pytest.raises(HTTPException) as exc_info:
+        start_evaluation(
+            StartEvaluationRequest(
+                parcel_id=uuid4(),
+                crop_candidates=["cacao"],
+                temporal_window={"start": "2026-01-01", "end": "2026-03-31"},
+                viable_threshold=0.40,
+                condicional_threshold=0.40,
+            ),
+            FakeUser(id=uuid4()),
+            process_manager,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert process_manager.calls == []
 
 
 def test_start_evaluation_rejects_disallowed_role() -> None:

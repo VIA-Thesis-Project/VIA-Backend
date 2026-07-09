@@ -62,6 +62,7 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
         requested_by: UUID,
         crop_candidates: list[str],
         temporal_window: dict[str, Any],
+        mcda_params: dict[str, Any] | None = None,
     ) -> UUID:
         """Create a saga and enqueue the first extraction command atomically."""
 
@@ -89,6 +90,7 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
                 requested_by=requested_by,
                 crop_candidates=crop_candidates,
                 temporal_window=temporal_window,
+                mcda_params=mcda_params,
                 status=EvaluationSagaStatus.INICIADA.value,
             )
             repository.add(saga)
@@ -134,7 +136,11 @@ class EvaluationProcessManager(IdempotentConsumerMixin):
             changed = repository.transition(saga, EvaluationSagaStatus.EXTRACCION_COMPLETADA.value, message.id)
             if not changed:
                 return None
-            command = EjecutarEvaluacionViabilidad(evaluation_id=evaluation_id, extraction_result=message.payload)
+            command = EjecutarEvaluacionViabilidad(
+                evaluation_id=evaluation_id,
+                extraction_result=message.payload,
+                mcda_params=saga.mcda_params,
+            )
             return Message.command(EJECUTAR_EVALUACION_VIABILIDAD, command.to_payload(), correlation_id=evaluation_id)
 
         if message.type == EVALUACION_VIABILIDAD_COMPLETADA:

@@ -39,11 +39,27 @@ class StartEvaluationRequest(BaseModel):
 
     requested_by is intentionally NOT part of this contract: it is taken
     from the authenticated user resolved by get_current_user.
+
+    viable_threshold / condicional_threshold let the user redefine the
+    viability category ranges for THIS evaluation; when omitted the
+    deployment defaults apply (0.70 / 0.40).
     """
 
     parcel_id: UUID
     crop_candidates: list[str] = Field(min_length=1)
     temporal_window: dict[str, Any]
+    viable_threshold: float | None = Field(default=None, gt=0.0, lt=1.0)
+    condicional_threshold: float | None = Field(default=None, gt=0.0, lt=1.0)
+
+    def mcda_params(self) -> dict[str, float] | None:
+        """Return the per-evaluation MCDA overrides, or None when defaults apply."""
+
+        params: dict[str, float] = {}
+        if self.viable_threshold is not None:
+            params["viable_threshold"] = self.viable_threshold
+        if self.condicional_threshold is not None:
+            params["condicional_threshold"] = self.condicional_threshold
+        return params or None
 
 
 class StartEvaluationAccepted(BaseModel):
@@ -81,11 +97,21 @@ def start_evaluation(
 
     if current_user.role not in START_EVALUATION_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    if (
+        request.viable_threshold is not None
+        and request.condicional_threshold is not None
+        and request.condicional_threshold >= request.viable_threshold
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="condicional_threshold must be lower than viable_threshold",
+        )
     evaluation_id = process_manager.start_evaluation(
         parcel_id=request.parcel_id,
         requested_by=current_user.id,
         crop_candidates=request.crop_candidates,
         temporal_window=request.temporal_window,
+        mcda_params=request.mcda_params(),
     )
     return StartEvaluationAccepted(evaluation_id=evaluation_id, status=EvaluationSagaStatus.INICIADA)
 

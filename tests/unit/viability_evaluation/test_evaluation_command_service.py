@@ -69,6 +69,34 @@ def test_command_service_processes_valid_command_and_persists_once() -> None:
     assert engine.command_seen.evaluation_id == UUID(_EVALUATION_ID)
 
 
+def test_command_service_applies_user_defined_thresholds_to_engine_settings() -> None:
+    session = FakeSession()
+    engine = FakeEngine(_evaluation(UUID(_EVALUATION_ID)))
+    service = _service(session, engine=engine)
+    message = _message()
+    message.payload["mcda_params"] = {"viable_threshold": 0.6, "condicional_threshold": 0.3}
+
+    service.handle_execute_command(message)
+
+    assert engine.settings_seen.mcda_viable_threshold == 0.6
+    assert engine.settings_seen.mcda_condicional_threshold == 0.3
+    # Every other knob keeps the deployment value.
+    assert engine.settings_seen.mcda_alpha == _settings().mcda_alpha
+
+
+def test_command_service_fails_evaluation_when_thresholds_are_inconsistent() -> None:
+    session = FakeSession()
+    service = _service(session, engine=FakeEngine(_evaluation(UUID(_EVALUATION_ID))))
+    message = _message()
+    message.payload["mcda_params"] = {"viable_threshold": 0.3, "condicional_threshold": 0.5}
+
+    service.handle_execute_command(message)
+
+    outbox = _outbox(session)
+    assert [item.message_type for item in outbox] == [EVALUACION_VIABILIDAD_FALLIDA]
+    assert "condicional_threshold" in outbox[0].payload_json["failure_cause"]
+
+
 def test_outbox_receives_success_events_with_evaluation_correlation_id() -> None:
     session = FakeSession()
     service = _service(session, engine=FakeEngine(_evaluation(UUID(_EVALUATION_ID))))

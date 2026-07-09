@@ -115,7 +115,7 @@ class FakeProcessManager:
         self.evaluation_id = uuid4()
         self.calls: list[tuple[str, str, list[str], dict]] = []
 
-    def start_evaluation(self, parcel_id, requested_by, crop_candidates, temporal_window):  # noqa: ANN001, ANN201
+    def start_evaluation(self, parcel_id, requested_by, crop_candidates, temporal_window, mcda_params=None):  # noqa: ANN001, ANN201
         """Record request data and return a deterministic id."""
 
         self.calls.append((str(parcel_id), str(requested_by), crop_candidates, temporal_window))

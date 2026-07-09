@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Iterator, Protocol
 from uuid import UUID
 
@@ -106,12 +106,18 @@ class ExecuteEvaluationCommand:
 
     evaluation_id: UUID
     extraction_result: dict
+    mcda_params: dict = field(default_factory=dict)
+    """Per-evaluation MCDA overrides (user-defined viability thresholds)."""
 
     @classmethod
     def from_payload(cls, payload: dict) -> "ExecuteEvaluationCommand":
         """Deserialize an EjecutarEvaluacionViabilidad payload."""
 
-        return cls(evaluation_id=UUID(str(payload["evaluation_id"])), extraction_result=dict(payload.get("extraction_result", {})))
+        return cls(
+            evaluation_id=UUID(str(payload["evaluation_id"])),
+            extraction_result=dict(payload.get("extraction_result", {})),
+            mcda_params=dict(payload.get("mcda_params") or {}),
+        )
 
 
 @dataclass(frozen=True)
@@ -178,7 +184,8 @@ class ViabilityEvaluationCommandService(IdempotentConsumerMixin):
                 vector = self._agroenv_vector_port.get_vector_for_evaluation(command.evaluation_id)
                 crop_candidates = _crop_candidates(command, vector)
                 rulebooks = [self._rulebook_port.get_active_rulebook(crop_id) for crop_id in crop_candidates]
-                evaluation = self._engine.evaluate(command, vector, rulebooks, self._settings)
+                settings = _settings_with_overrides(self._settings, command.mcda_params)
+                evaluation = self._engine.evaluate(command, vector, rulebooks, settings)
                 self._repository_factory(session).save(evaluation, {rulebook.crop_id: rulebook.version for rulebook in rulebooks})
                 for event in _success_events(evaluation):
                     self._outbox_writer.write(session, event, AGGREGATE_TYPE, evaluation.id)
@@ -620,6 +627,34 @@ def _normalize(weights: dict[str, float]) -> dict[str, float]:
     if total <= 0.0:
         return {key: 1.0 / len(weights) for key in weights}
     return {key: value / total for key, value in weights.items()}
+
+
+def _settings_with_overrides(settings: McdaRuntimeSettings, mcda_params: dict) -> McdaRuntimeSettings:
+    """Apply per-evaluation threshold overrides onto the runtime settings.
+
+    Only the viability thresholds are user-configurable; every other MCDA knob
+    keeps its deployment value. Invalid overrides fail the evaluation with a
+    clear cause instead of silently producing inconsistent categories.
+    """
+
+    if not mcda_params:
+        return settings
+
+    viable = _threshold_from_params(mcda_params, "viable_threshold", settings.mcda_viable_threshold)
+    condicional = _threshold_from_params(mcda_params, "condicional_threshold", settings.mcda_condicional_threshold)
+    if condicional >= viable:
+        raise ValueError("condicional_threshold must be lower than viable_threshold")
+    return replace(settings, mcda_viable_threshold=viable, mcda_condicional_threshold=condicional)
+
+
+def _threshold_from_params(mcda_params: dict, key: str, default: float) -> float:
+    raw_value = mcda_params.get(key)
+    if raw_value is None:
+        return default
+    value = float(raw_value)
+    if not 0.0 < value < 1.0:
+        raise ValueError(f"{key} must be between 0 and 1 (exclusive)")
+    return value
 
 
 def _crop_candidates(command: ExecuteEvaluationCommand, vector: AgroenvVectorData) -> list[str]:

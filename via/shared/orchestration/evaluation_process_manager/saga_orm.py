@@ -22,6 +22,7 @@ class EvaluationSagaModel(Base):
     requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     crop_candidates: Mapped[list] = mapped_column(JSONB, nullable=False)
     temporal_window: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    mcda_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -43,11 +43,17 @@ class EjecutarEvaluacionViabilidad:
 
     evaluation_id: UUID
     extraction_result: dict[str, Any]
+    mcda_params: dict[str, Any] | None = None
+    """Per-evaluation MCDA overrides (user-defined viability thresholds)."""
 
     def to_payload(self) -> dict[str, Any]:
         """Serialize the command as JSON-compatible data."""
 
-        return {"evaluation_id": str(self.evaluation_id), "extraction_result": self.extraction_result}
+        return {
+            "evaluation_id": str(self.evaluation_id),
+            "extraction_result": self.extraction_result,
+            "mcda_params": self.mcda_params,
+        }
 
 
 @dataclass(frozen=True)
