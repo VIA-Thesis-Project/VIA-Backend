@@ -12,7 +12,7 @@ from via.bounded_contexts.iam.domain.user import User
 from via.bounded_contexts.parcel_management.application.command_service import ParcelAccessDeniedError
 from via.bounded_contexts.parcel_management.domain.parcel import Parcel
 from via.bounded_contexts.parcel_management.domain.value_objects import GeoJSONGeometry, ParcelMetadata
-from via.bounded_contexts.parcel_management.interfaces.parcel_router import create_parcel, get_parcel, list_parcels, router
+from via.bounded_contexts.parcel_management.interfaces.parcel_router import create_parcel, delete_parcel, get_parcel, list_parcels, router
 from via.bounded_contexts.parcel_management.interfaces.resources import ParcelCreateRequest, ParcelMetadataResource
 
 
@@ -29,6 +29,13 @@ class FakeCommandService:
 
         self.calls.append((owner_id, geometry, metadata))
         return _parcel(owner_id)
+
+    def delete_parcel(self, parcel_id, owner_id):
+        """Record or deny a deletion."""
+
+        self.calls.append(("delete", parcel_id, owner_id))
+        if getattr(self, "deny_delete", False):
+            raise ParcelAccessDeniedError("Access denied")
 
 
 class FakeQueryService:
@@ -98,6 +105,27 @@ def test_especialista_tecnico_is_rejected_for_parcel_routes() -> None:
     assert exc_info.value.status_code == 403
 
 
+def test_delete_parcel_delegates_to_command_service() -> None:
+    user = _user(Role.USUARIO_AGRICOLA)
+    service = FakeCommandService()
+    parcel_id = uuid4()
+
+    delete_parcel(parcel_id, user, service)
+
+    assert service.calls == [("delete", parcel_id, user.id)]
+
+
+def test_delete_foreign_parcel_returns_403() -> None:
+    user = _user(Role.USUARIO_AGRICOLA)
+    service = FakeCommandService()
+    service.deny_delete = True
+
+    with pytest.raises(HTTPException) as exc_info:
+        delete_parcel(uuid4(), user, service)
+
+    assert exc_info.value.status_code == 403
+
+
 def test_router_exposes_exactly_required_parcel_routes() -> None:
     routes = {(route.path, tuple(sorted(route.methods))) for route in router.routes}
 
@@ -106,6 +134,7 @@ def test_router_exposes_exactly_required_parcel_routes() -> None:
         ("/parcelas", ("POST",)),
         ("/parcelas/{parcel_id}", ("GET",)),
         ("/parcelas/{parcel_id}", ("PATCH",)),
+        ("/parcelas/{parcel_id}", ("DELETE",)),
     }
 
 

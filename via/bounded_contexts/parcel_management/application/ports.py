@@ -25,3 +25,6 @@ class IParcelRepository(Protocol):
 
     def record_version_snapshot(self, parcel: Parcel) -> None:
         """Record a snapshot before updating a parcel."""
+
+    def delete(self, parcel: Parcel) -> None:
+        """Remove a parcel and its version history."""

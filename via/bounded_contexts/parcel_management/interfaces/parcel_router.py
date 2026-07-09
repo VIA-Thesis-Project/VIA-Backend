@@ -120,6 +120,23 @@ def update_parcel(
     return _to_response(parcel)
 
 
+@router.delete("/{parcel_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_parcel(
+    parcel_id: UUID,
+    current_user: User = Depends(get_current_user),
+    command_service: ParcelCommandService = Depends(get_parcel_command_service),
+) -> None:
+    """Delete one owned parcel."""
+
+    _ensure_allowed_role(current_user)
+    try:
+        command_service.delete_parcel(parcel_id=parcel_id, owner_id=current_user.id)
+    except ParcelNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parcel not found") from exc
+    except ParcelAccessDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied") from exc
+
+
 def _ensure_allowed_role(user: User) -> None:
     if user.role not in ALLOWED_PARCEL_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")

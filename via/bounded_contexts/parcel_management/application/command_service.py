@@ -58,3 +58,14 @@ class ParcelCommandService:
         parcel.update(geometry=normalized_geometry, metadata=parcel_metadata)
         self._parcel_repository.save(parcel)
         return parcel
+
+    def delete_parcel(self, parcel_id: UUID, owner_id: UUID) -> None:
+        """Delete an owned parcel and its version history."""
+
+        parcel = self._parcel_repository.get_by_id(parcel_id)
+        if parcel is None:
+            raise ParcelNotFoundError("Parcel not found")
+        if parcel.owner_id != owner_id:
+            raise ParcelAccessDeniedError("Access denied")
+
+        self._parcel_repository.delete(parcel)

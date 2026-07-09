@@ -47,6 +47,11 @@ class FakeParcelRepository:
 
         self.snapshots.append((parcel.id, parcel.metadata.to_mapping(), parcel.geometry.to_geojson()))
 
+    def delete(self, parcel: Parcel) -> None:
+        """Remove a parcel."""
+
+        self.parcels.pop(parcel.id, None)
+
 
 def test_register_parcel_normalizes_geometry_and_sets_owner() -> None:
     repository = FakeParcelRepository()
@@ -95,6 +100,30 @@ def test_update_owned_parcel_records_snapshot_and_updates_metadata() -> None:
 
     assert updated.metadata.name == "New"
     assert repository.snapshots[0][1]["name"] == "Old"
+
+
+def test_delete_owned_parcel_removes_it_from_repository() -> None:
+    repository = FakeParcelRepository()
+    owner_id = uuid4()
+    parcel = _parcel(owner_id, "Doomed")
+    repository.add(parcel)
+    service = ParcelCommandService(repository, ParcelGeometryValidator(max_area_ha=50_000))
+
+    service.delete_parcel(parcel.id, owner_id)
+
+    assert parcel.id not in repository.parcels
+
+
+def test_delete_foreign_parcel_raises_access_denied_and_keeps_it() -> None:
+    repository = FakeParcelRepository()
+    foreign = _parcel(uuid4(), "Foreign")
+    repository.add(foreign)
+    service = ParcelCommandService(repository, ParcelGeometryValidator(max_area_ha=50_000))
+
+    with pytest.raises(ParcelAccessDeniedError):
+        service.delete_parcel(foreign.id, uuid4())
+
+    assert foreign.id in repository.parcels
 
 
 def _parcel(owner_id, name: str) -> Parcel:

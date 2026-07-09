@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from via.bounded_contexts.parcel_management.application.ports import IParcelRepository
@@ -67,6 +67,14 @@ class SQLAlchemyParcelRepository(IParcelRepository):
                 geometry_snapshot=geojson_multipolygon_to_wkt(parcel.geometry),
             )
         )
+
+    def delete(self, parcel: Parcel) -> None:
+        """Remove a parcel and its version history without committing."""
+
+        self._session.execute(delete(ParcelVersionModel).where(ParcelVersionModel.parcel_id == parcel.id))
+        model = self._session.get(ParcelModel, parcel.id)
+        if model is not None:
+            self._session.delete(model)
 
 
 def _to_model(parcel: Parcel) -> ParcelModel:
