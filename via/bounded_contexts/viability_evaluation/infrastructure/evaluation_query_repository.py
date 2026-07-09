@@ -13,6 +13,7 @@ from via.bounded_contexts.viability_evaluation.application.ports import (
     AgroenvVectorData,
     AgroenvVectorReadModel,
     CropResultReadModel,
+    EvaluationSummaryReadModel,
     GapReadModel,
     LimitingFactorReadModel,
     SagaSnapshot,
@@ -122,6 +123,42 @@ class EvaluationQueryRepository:
                 for v in vector.variables
             ],
         )
+
+    def list_summaries_for_parcel(self, parcel_id: UUID, requested_by: UUID) -> list[EvaluationSummaryReadModel]:
+        """Return the requester's evaluations of one parcel, newest first."""
+
+        sagas = self._session.execute(
+            select(EvaluationSagaModel)
+            .where(EvaluationSagaModel.parcel_id == parcel_id)
+            .where(EvaluationSagaModel.requested_by == requested_by)
+            .order_by(EvaluationSagaModel.created_at.desc())
+        ).scalars().all()
+        if not sagas:
+            return []
+
+        top_results = self._session.execute(
+            select(EvaluationResultModel)
+            .where(EvaluationResultModel.evaluation_id.in_([saga.id for saga in sagas]))
+            .where(EvaluationResultModel.rank_position == 1)
+        ).scalars().all()
+        top_by_evaluation = {result.evaluation_id: result for result in top_results}
+
+        summaries: list[EvaluationSummaryReadModel] = []
+        for saga in sagas:
+            top = top_by_evaluation.get(saga.id)
+            summaries.append(
+                EvaluationSummaryReadModel(
+                    evaluation_id=saga.id,
+                    parcel_id=saga.parcel_id,
+                    status=saga.status,
+                    created_at=saga.created_at,
+                    crop_candidates=list(saga.crop_candidates or []),
+                    top_crop_id=top.crop_id if top else None,
+                    top_score=float(top.score) if top and top.score is not None else None,
+                    top_viability_category=top.viability_category if top else None,
+                )
+            )
+        return summaries
 
     def _load_rulebook_metadata(self, crop_ids: list[str]) -> RulebookMetadataByCrop:
         if self._rulebook_metadata_source is None:

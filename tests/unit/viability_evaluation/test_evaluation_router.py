@@ -102,9 +102,12 @@ def test_start_evaluation_rejects_disallowed_role() -> None:
 
 
 def test_router_declares_http_202_start_endpoint() -> None:
-    matching_routes = [route for route in router.routes if getattr(route, "path", None) == "/evaluaciones"]
+    matching_routes = [
+        route
+        for route in router.routes
+        if getattr(route, "path", None) == "/evaluaciones" and route.methods == {"POST"}
+    ]
 
     assert len(matching_routes) == 1
-    assert len(router.routes) == 4  # POST /evaluaciones + GET estado/resultado-mcda/vector-agroambiental
+    assert len(router.routes) == 5  # POST+GET /evaluaciones + GET estado/resultado-mcda/vector-agroambiental
     assert matching_routes[0].status_code == 202
-    assert matching_routes[0].methods == {"POST"}

@@ -80,6 +80,19 @@ class EvaluationMcdaResultResponse(BaseModel):
     failure_reason: str | None = None
 
 
+class EvaluationSummaryResponse(BaseModel):
+    """One evaluation of a parcel, summarized for history listings."""
+
+    evaluation_id: UUID
+    parcel_id: UUID
+    status: str
+    created_at: datetime | None
+    crop_candidates: list[str]
+    top_crop_id: str | None = None
+    top_score: float | None = None
+    top_viability_category: str | None = None
+
+
 class AgroenvVariableResponse(BaseModel):
     """Extracted agroenvironmental variable for one crop criterion and phase."""
 

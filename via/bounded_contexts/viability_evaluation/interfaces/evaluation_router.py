@@ -22,6 +22,7 @@ from via.bounded_contexts.viability_evaluation.interfaces.resources import (
     CropResultResponse,
     EvaluationMcdaResultResponse,
     EvaluationStatusResponse,
+    EvaluationSummaryResponse,
     GapResponse,
     LimitingFactorResponse,
 )
@@ -87,6 +88,34 @@ def start_evaluation(
         temporal_window=request.temporal_window,
     )
     return StartEvaluationAccepted(evaluation_id=evaluation_id, status=EvaluationSagaStatus.INICIADA)
+
+
+@router.get("", response_model=list[EvaluationSummaryResponse])
+def list_evaluations(
+    parcel_id: UUID,
+    query_service: EvaluationQueryService = Depends(get_evaluation_query_service),
+    current_user: User = Depends(get_current_user),
+) -> list[EvaluationSummaryResponse]:
+    """Return the authenticated user's evaluation history for one parcel.
+
+    Scoped to evaluations requested by the current user, newest first.
+    Returns an empty list when the parcel has no evaluations for this user.
+    """
+
+    summaries = query_service.list_evaluations_for_parcel(parcel_id, current_user.id)
+    return [
+        EvaluationSummaryResponse(
+            evaluation_id=s.evaluation_id,
+            parcel_id=s.parcel_id,
+            status=s.status,
+            created_at=s.created_at,
+            crop_candidates=s.crop_candidates,
+            top_crop_id=s.top_crop_id,
+            top_score=s.top_score,
+            top_viability_category=s.top_viability_category,
+        )
+        for s in summaries
+    ]
 
 
 @router.get("/{evaluation_id}/estado", response_model=EvaluationStatusResponse)

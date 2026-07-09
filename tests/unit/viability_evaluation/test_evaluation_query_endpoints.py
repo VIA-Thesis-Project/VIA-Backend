@@ -15,16 +15,20 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from via.bounded_contexts.iam.domain.role import Role
+from via.bounded_contexts.iam.domain.user import User
 from via.bounded_contexts.viability_evaluation.application.ports import (
     CropResultReadModel,
     EvaluationMcdaResultReadModel,
     EvaluationStatusReadModel,
+    EvaluationSummaryReadModel,
     GapReadModel,
     LimitingFactorReadModel,
 )
 from via.bounded_contexts.viability_evaluation.interfaces.evaluation_router import (
     get_evaluation_status,
     get_mcda_result,
+    list_evaluations,
     router,
 )
 from via.shared.orchestration.evaluation_process_manager.states import EvaluationSagaStatus
@@ -57,6 +61,11 @@ class FakeQueryService:
     def get_mcda_result(self, evaluation_id: UUID):  # noqa: ANN201
         self.result_calls.append(evaluation_id)
         return self._result_rm
+
+    def list_evaluations_for_parcel(self, parcel_id: UUID, requested_by: UUID):  # noqa: ANN201
+        self.list_calls = getattr(self, "list_calls", [])
+        self.list_calls.append((parcel_id, requested_by))
+        return getattr(self, "summaries", [])
 
 
 # ─────────────────────── fixture factories ────────────────────────────────────
@@ -255,6 +264,47 @@ def test_router_declares_estado_and_resultado_mcda_endpoints() -> None:
     paths = {getattr(r, "path", None) for r in router.routes}
     assert "/evaluaciones/{evaluation_id}/estado" in paths
     assert "/evaluaciones/{evaluation_id}/resultado-mcda" in paths
+
+
+# ──────────────────── tests endpoint GET /evaluaciones ────────────────────────
+
+
+def test_list_evaluations_returns_summaries_scoped_to_current_user() -> None:
+    user = User.create(uuid4(), "user@example.com", "hash", Role.USUARIO_AGRICOLA)
+    parcel_id = uuid4()
+    svc = FakeQueryService()
+    svc.summaries = [
+        EvaluationSummaryReadModel(
+            evaluation_id=_EID,
+            parcel_id=parcel_id,
+            status=EvaluationSagaStatus.RECOMENDACION_COMPLETADA.value,
+            created_at=_NOW,
+            crop_candidates=["maiz", "palta"],
+            top_crop_id="maiz",
+            top_score=0.87,
+            top_viability_category="VIABLE",
+        )
+    ]
+
+    response = list_evaluations(parcel_id, svc, user)
+
+    assert svc.list_calls == [(parcel_id, user.id)]
+    assert len(response) == 1
+    assert response[0].evaluation_id == _EID
+    assert response[0].top_crop_id == "maiz"
+    assert response[0].top_score == 0.87
+
+
+def test_list_evaluations_returns_empty_list_when_parcel_has_none() -> None:
+    user = User.create(uuid4(), "user@example.com", "hash", Role.USUARIO_AGRICOLA)
+    svc = FakeQueryService()
+
+    assert list_evaluations(uuid4(), svc, user) == []
+
+
+def test_router_declares_list_evaluations_endpoint() -> None:
+    routes = {(getattr(r, "path", None), tuple(sorted(getattr(r, "methods", ())))) for r in router.routes}
+    assert ("/evaluaciones", ("GET",)) in routes
 
 
 # ─────────────────────── helpers ──────────────────────────────────────────────

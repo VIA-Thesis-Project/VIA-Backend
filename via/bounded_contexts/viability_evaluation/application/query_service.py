@@ -9,6 +9,7 @@ from via.bounded_contexts.viability_evaluation.application.ports import (
     CropResultReadModel,
     EvaluationMcdaResultReadModel,
     EvaluationStatusReadModel,
+    EvaluationSummaryReadModel,
     GapReadModel,
     IEvaluationQueryPort,
     LimitingFactorReadModel,
@@ -28,6 +29,7 @@ __all__ = [
     "CropResultReadModel",
     "EvaluationMcdaResultReadModel",
     "EvaluationStatusReadModel",
+    "EvaluationSummaryReadModel",
     "EvaluationQueryService",
     "GapReadModel",
     "IEvaluationQueryPort",
@@ -92,3 +94,8 @@ class EvaluationQueryService:
         if self._port.find_saga_snapshot(evaluation_id) is None:
             return None
         return self._port.find_agroenv_vector(evaluation_id)
+
+    def list_evaluations_for_parcel(self, parcel_id: UUID, requested_by: UUID) -> list[EvaluationSummaryReadModel]:
+        """Return the requester's evaluation history for one parcel, newest first."""
+
+        return self._port.list_summaries_for_parcel(parcel_id, requested_by)

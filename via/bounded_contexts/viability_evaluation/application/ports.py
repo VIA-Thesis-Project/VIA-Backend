@@ -87,6 +87,20 @@ class EvaluationStatusReadModel:
     failure_reason: str | None
 
 
+@dataclass(frozen=True)
+class EvaluationSummaryReadModel:
+    """One evaluation of a parcel, summarized for history listings."""
+
+    evaluation_id: UUID
+    parcel_id: UUID
+    status: str
+    created_at: datetime | None
+    crop_candidates: list[str]
+    top_crop_id: str | None = None
+    top_score: float | None = None
+    top_viability_category: str | None = None
+
+
 @dataclass
 class EvaluationMcdaResultReadModel:
     """MCDA results read model — populated when evaluation is complete."""
@@ -217,3 +231,6 @@ class IEvaluationQueryPort(Protocol):
 
     def find_agroenv_vector(self, evaluation_id: UUID) -> AgroenvVectorReadModel | None:
         """Return the persisted agroenvironmental vector, or None when absent."""
+
+    def list_summaries_for_parcel(self, parcel_id: UUID, requested_by: UUID) -> list[EvaluationSummaryReadModel]:
+        """Return the requester's evaluations of one parcel, newest first."""
