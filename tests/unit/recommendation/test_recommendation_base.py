@@ -751,7 +751,7 @@ def test_structured_output_rewrites_unsafe_arena_recommendation() -> None:
     assert "VIA ajusto" in item["limitations"]
 
 
-def test_structured_output_rewrites_arena_elevate_recommendation_and_marks_indirect_evidence() -> None:
+def test_structured_output_rewrites_arena_elevate_recommendation_and_accepts_practice_evidence() -> None:
     provider = FakeStructuredFileSearchProvider(
         retrieved_text="El manejo de suelo mejora estructura, materia organica y retencion de humedad.",
         source_filename="suelo.md",
@@ -783,8 +783,39 @@ def test_structured_output_rewrites_arena_elevate_recommendation_and_marks_indir
 
     assert "elevar" not in item["recommendation"].lower()
     assert "analisis fisico" in item["recommendation"].lower()
-    assert item["evidence_status"] == "compatible_indirecta"
-    assert item["confidence"] == "baja"
+    # La evidencia menciona estructura y materia organica (practicas correctivas de
+    # arena), asi que tras la recalibracion cuenta como respaldo directo (no indirecto);
+    # el rewrite de textura insegura la limita a "media", no a "baja".
+    assert item["evidence_status"] == "compatible"
+    assert item["confidence"] == "media"
+
+
+def test_web_evidence_with_corrective_practice_counts_as_direct_soil_support() -> None:
+    from via.bounded_contexts.recommendation.application.command_service import _has_direct_soil_evidence
+
+    item = {"criterion_id": "reaccion_suelo_ph", "criterion_name": "reaccion_suelo_ph"}
+    web_evidence = EvidenceData(
+        fragment_id=uuid4(),
+        document_id=uuid4(),
+        text="Para corregir el pH alcalino del suelo se recomienda aplicar azufre elemental.",
+        crop_tags=["mandarina"],
+        score=0.9,
+        source_filename="",
+        source_file_id="https://intagri.com/articulos/suelos/ph",
+    )
+
+    # Antes de la recalibracion solo suelo.md contaba como directo; ahora la evidencia
+    # web que menciona la practica correctiva (azufre para pH) tambien respalda directo.
+    assert _has_direct_soil_evidence(item, web_evidence) is True
+
+
+def test_support_level_label_renames_confidence_to_document_support() -> None:
+    from via.bounded_contexts.recommendation.application.command_service import _support_level_label
+
+    assert _support_level_label("alta") == "directo"
+    assert _support_level_label("media") == "parcial"
+    assert _support_level_label("baja") == "indirecto"
+    assert _support_level_label(None) == "indirecto"
 
 
 def test_soil_criterion_rejects_climate_curated_as_main_evidence() -> None:
@@ -1033,7 +1064,7 @@ def test_mapping_suspects_are_deduped_and_do_not_fill_visible_slots() -> None:
     # "Criterios: Deficit hidrico" should appear exactly once (in the validation block, not duplicated)
     assert visible.count("Criterios: Deficit hidrico") == 1
     # In the recommendations section, actionable item (Aptitud termica) must appear before the suspect block
-    assert visible.index("Aptitud termica (confianza:") < visible.index("Criterios: Deficit hidrico")
+    assert visible.index("Aptitud termica (respaldo documental:") < visible.index("Criterios: Deficit hidrico")
 
 
 def test_controlled_hydric_stress_requires_wmurcott_sayan_evidence() -> None:
@@ -1327,7 +1358,7 @@ def test_visible_text_groups_all_mapping_suspects_into_one_block() -> None:
     visible = _render_visible_text(qc_output, "fallback")
 
     assert visible.count("Criterios pendientes de validacion metodologica") == 1
-    assert visible.count("(confianza: baja)") == 1
+    assert visible.count("(respaldo documental: indirecto)") == 1
     assert "Deficit hidrico" in visible
     assert "Riesgo calor" in visible
     assert "Riesgo frio" in visible

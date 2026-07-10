@@ -1117,24 +1117,28 @@ def _has_only_indirect_soil_evidence(item: dict, evidence: list[EvidenceData]) -
     return not any(_has_direct_soil_evidence(item, evidence_item) for evidence_item in matched)
 
 
+# Terminos que hacen que una fuente cuente como respaldo DIRECTO de una brecha
+# de suelo: el nombre del factor o su practica correctiva reconocida. Se evaluan
+# sobre cualquier fuente (curada o web), no solo suelo.md, para que la evidencia
+# recuperada por RAG pueda respaldar directamente la recomendacion.
+_SOIL_DIRECT_EVIDENCE_TERMS: dict[str, tuple[str, ...]] = {
+    "contenido_arena": ("arena", "textura", "drenaje", "aireacion", "materia organica", "enmienda", "estructura", "mulch", "cobertura"),
+    "contenido_arcilla": ("arcilla", "textura", "drenaje", "materia organica", "enmienda", "estructura", "labranza"),
+    "reaccion_suelo_ph": ("ph", "encalado", "cal agricola", "cal dolomita", "azufre", "acidez", "alcalin", "sulfato"),
+    "carbono_organico_suelo": ("carbono", "materia organica", "compost", "estiercol", "abono", "humus", "cobertura"),
+    "salinidad": ("salinidad", "sales", "conductividad", "yeso", "lavado", "lixivia", "sodio"),
+    "profundidad": ("profundidad", "perfil", "horizonte", "subsolado"),
+}
+
+
 def _has_direct_soil_evidence(item: dict, evidence: EvidenceData) -> bool:
     criterion = _normalize_text(str(item.get("criterion_name") or item.get("criterion_id") or ""))
-    haystack = _normalize_text(" ".join([evidence.text, evidence.source_filename or ""]))
-    if evidence.source_filename == "suelo.md":
-        if "contenido_arena" in criterion:
-            return any(term in haystack for term in ("arena", "textura", "drenaje", "aireacion"))
-        if "contenido_arcilla" in criterion:
-            return any(term in haystack for term in ("arcilla", "textura", "drenaje"))
-        if "reaccion_suelo_ph" in criterion:
-            return "ph" in haystack
-        if "carbono_organico_suelo" in criterion:
-            return any(term in haystack for term in ("carbono", "materia organica"))
-        if "salinidad" in criterion:
-            return "salinidad" in haystack
-        if "profundidad" in criterion:
-            return "profundidad" in haystack
-        return True
-    return False
+    haystack = _normalize_text(" ".join([evidence.text, evidence.source_filename or "", str(evidence.source_file_id or "")]))
+    for key, terms in _SOIL_DIRECT_EVIDENCE_TERMS.items():
+        if key in criterion:
+            return any(_normalize_text(term) in haystack for term in terms)
+    # Criterio de suelo no enumerado: la fuente curada suelo.md se acepta como directa.
+    return evidence.source_filename == "suelo.md"
 
 
 def _semantic_needles(item: dict) -> list[str]:
@@ -1254,7 +1258,7 @@ def _render_soil_group_lines(lines: list[str], index: int, soil_items: list[dict
         str(item["limitations"]) for item in soil_items
         if item.get("limitations") and str(item["limitations"]).strip().lower() not in ("none", "null", "")
     ))
-    lines.append(f"{index}. Condicion fisica y organica del suelo (confianza: {group_confidence})")
+    lines.append(f"{index}. Condicion fisica y organica del suelo (respaldo documental: {_support_level_label(group_confidence)})")
     lines.append(f"Brechas detectadas: {', '.join(criterion_labels)}.")
     lines.append(str(merged_rec))
     if evidence_names:
@@ -1278,7 +1282,7 @@ def _render_single_item_lines(lines: list[str], index: int, item: dict) -> None:
         for ref in item.get("evidence_used") or []
         if isinstance(ref, dict) and (ref.get("source_filename") or ref.get("source_file_id"))
     ]
-    lines.append(f"{index}. {title} (confianza: {confidence})")
+    lines.append(f"{index}. {title} (respaldo documental: {_support_level_label(confidence)})")
     lines.append(str(recommendation_text))
     if evidence_names:
         lines.append(f"Evidencia: {', '.join(dict.fromkeys(evidence_names))}.")
@@ -1304,7 +1308,7 @@ def _render_mapping_suspect_group_lines(lines: list[str], index: int, suspect_it
             if item.get("mapping_validation_note") or item.get("limitations")
         )
     )
-    lines.append(f"{index}. Criterios pendientes de validacion metodologica (confianza: baja)")
+    lines.append(f"{index}. Criterios pendientes de validacion metodologica (respaldo documental: indirecto)")
     if labels:
         lines.append(f"Criterios: {', '.join(labels)}.")
     if notes:
@@ -1414,6 +1418,18 @@ def _min_confidence(current, cap: str) -> str:
     order = {"baja": 0, "media": 1, "alta": 2}
     current_value = str(current or "baja").lower()
     return current_value if order.get(current_value, 0) <= order[cap] else cap
+
+
+# La escala interna sigue siendo baja/media/alta (para ordenar y degradar), pero
+# se PRESENTA como nivel de respaldo documental: mide cuan directa es la evidencia
+# en las fuentes, no cuan buena es la recomendacion.
+_SUPPORT_LEVEL_LABELS = {"alta": "directo", "media": "parcial", "baja": "indirecto"}
+
+
+def _support_level_label(confidence) -> str:
+    """Return the document-support label shown to the user for a confidence value."""
+
+    return _SUPPORT_LEVEL_LABELS.get(str(confidence or "baja").lower(), "indirecto")
 
 
 def _normalize_text(value: str) -> str:
