@@ -1688,6 +1688,30 @@ class FakeSession:
         self.added.append(model)
 
 
+def test_focus_recommendable_gaps_drops_near_optimal_criteria() -> None:
+    from via.bounded_contexts.recommendation.application.command_service import (
+        DEFAULT_RECOMMENDABLE_GAP_MEMBERSHIP_THRESHOLD,
+        _focus_recommendable_gaps,
+    )
+
+    low = GapData(criterion_id="agua", phase_id="floracion", most_limiting_period="p1",
+                  observed_value=10.0, optimal_limit=22.0, gap_value=-12.0, membership=0.2)
+    near_optimal = GapData(criterion_id="ph", phase_id="floracion", most_limiting_period="p1",
+                           observed_value=6.3, optimal_limit=6.5, gap_value=-0.2, membership=0.95)
+    legacy = GapData(criterion_id="arcilla", phase_id="floracion", most_limiting_period="p1",
+                     observed_value=20.0, optimal_limit=35.0, gap_value=-15.0, membership=None)
+    crop_result = _crop_result(gaps=[low, near_optimal, legacy])
+
+    focused = _focus_recommendable_gaps(crop_result, DEFAULT_RECOMMENDABLE_GAP_MEMBERSHIP_THRESHOLD)
+
+    kept = {gap.criterion_id for gap in focused.gaps}
+    assert "agua" in kept  # membresia baja -> brecha accionable
+    assert "arcilla" in kept  # sin membresia (legacy) -> se conserva
+    assert "ph" not in kept  # casi optimo -> excluido de la recomendacion
+    # Los factores limitantes (vetos criticos) nunca se filtran.
+    assert len(focused.limiting_factors) == len(crop_result.limiting_factors)
+
+
 def _service(
     evaluation_id: UUID,
     crop_result: CropEvaluationResultData | None = None,

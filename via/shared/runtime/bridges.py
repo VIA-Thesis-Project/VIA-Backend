@@ -362,6 +362,7 @@ def _crop_result_to_recommendation_data(
                 observed_value=g.observed_value,
                 optimal_limit=g.optimal_limit,
                 gap_value=g.gap_value,
+                membership=getattr(g, "membership", None),
                 **_gap_metadata(metadata_by_pair, g.criterion_id, g.phase_id, g.gap_value, getattr(g, "membership", None)),
             )
             for g in result.gaps

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import unicodedata
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Iterator
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -41,6 +41,12 @@ INSUFFICIENT_EVIDENCE_MSG = (
     "No se encontro evidencia documental suficiente para sustentar una recomendacion especifica sobre esta brecha."
 )
 
+# Solo se recomienda sobre brechas cuya membresia difusa este por DEBAJO de este
+# umbral. Un criterio con membresia >= umbral esta lo bastante cerca del optimo
+# como para no requerir accion; el motor MCDA lo sigue registrando como brecha
+# (mu < 1) para trazabilidad, pero no se convierte en recomendacion.
+DEFAULT_RECOMMENDABLE_GAP_MEMBERSHIP_THRESHOLD = 0.8
+
 
 @dataclass(frozen=True)
 class GenerateRecommendationCommand:
@@ -72,6 +78,7 @@ class RecommendationCommandService:
         evidence_port: IDocumentEvidencePort,
         drafting_provider: IRecommendationDraftingProvider,
         repository: IRecommendationRepository | None = None,
+        gap_membership_threshold: float = DEFAULT_RECOMMENDABLE_GAP_MEMBERSHIP_THRESHOLD,
     ) -> None:
         """Create the service with injectable ports."""
 
@@ -79,6 +86,7 @@ class RecommendationCommandService:
         self._evidence_port = evidence_port
         self._drafting_provider = drafting_provider
         self._repository = repository
+        self._gap_membership_threshold = gap_membership_threshold
 
     def generate(self, command: GenerateRecommendationCommand) -> Recommendation:
         """Draft and optionally persist a recommendation."""
@@ -87,6 +95,7 @@ class RecommendationCommandService:
             raise RecommendationDomainError("max_fragments must be positive")
         evaluation = self._evaluation_results_port.get_results_for_recommendation(command.evaluation_id)
         crop_result = _select_crop_result(evaluation.crop_results, command.crop_id)
+        crop_result = _focus_recommendable_gaps(crop_result, self._gap_membership_threshold)
         evidence = self._evidence_port.search_evidence(
             crop_id=crop_result.crop_id,
             gaps=crop_result.gaps,
@@ -214,6 +223,29 @@ def _select_crop_result(
     if len(top_ranked) > 1:
         raise RecommendationDomainError("ambiguous rank_position=1 results when crop_id is not provided")
     return top_ranked[0]
+
+
+def _focus_recommendable_gaps(
+    crop_result: CropEvaluationResultData,
+    membership_threshold: float,
+) -> CropEvaluationResultData:
+    """Keep only gaps that warrant an action, dropping near-optimal criteria.
+
+    A gap with fuzzy membership >= ``membership_threshold`` is close enough to the
+    optimum that recommending an intervention adds noise, so it is excluded from
+    the recommendation. Gaps without a membership value (legacy rows) are always
+    kept to avoid silently dropping data. Limiting factors are never filtered:
+    they are critical vetoes that must always surface.
+    """
+
+    recommendable = [
+        gap
+        for gap in crop_result.gaps
+        if gap.membership is None or float(gap.membership) < membership_threshold
+    ]
+    if len(recommendable) == len(crop_result.gaps):
+        return crop_result
+    return replace(crop_result, gaps=recommendable)
 
 
 def _build_sections(
