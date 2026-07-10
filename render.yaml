@@ -46,7 +46,7 @@ services:
       - key: OPENAI_WEB_SEARCH_ENABLED
         value: "true"
       - key: OPENAI_WEB_SEARCH_ALLOWED_DOMAINS
-        value: "midagri.gob.pe,inia.gob.pe,senasa.gob.pe,senamhi.gob.pe,agrorural.gob.pe,fao.org,iica.int,cgiar.org,cabi.org,scielo.org,redalyc.org,ivia.gva.es,repositorio.lamolina.edu.pe,repositorio.unas.edu.pe,repositorio.unap.edu.pe"
+        value: "midagri.gob.pe,inia.gob.pe,senasa.gob.pe,senamhi.gob.pe,agrorural.gob.pe,lamolina.edu.pe,fao.org,iica.int,cgiar.org,cabi.org,inta.gob.ar,intagri.com,infoagro.com,ivia.gva.es,scielo.org,redalyc.org"
       - key: OPENAI_WEB_SEARCH_CONTEXT_SIZE
         value: "medium"
       - key: OPENAI_WEB_SEARCH_COUNTRY
@@ -58,13 +58,13 @@ services:
       - key: TAVILY_MAX_RESULTS
         value: "5"
       - key: TAVILY_SEARCH_DEPTH
-        value: "basic"
+        value: "advanced"
       - key: JINA_READER_ENABLED
-        value: "false"
+        value: "true"
       - key: JINA_READER_MAX_URLS
-        value: "1"
+        value: "3"
       - key: JINA_READER_TIMEOUT_SECONDS
-        value: "8"
+        value: "20"
       - key: VIA_VECTOR_STORE_MAIZ_AMARILLO_DURO_ID
         sync: false
       - key: VIA_VECTOR_STORE_PALTA_HASS_ID

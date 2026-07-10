@@ -60,7 +60,13 @@ DEFAULT_OPENAI_FILE_SEARCH_PROMPT_VERSION = "v2"
 DEFAULT_OPENAI_WEB_SEARCH_ENABLED = False
 DEFAULT_OPENAI_WEB_SEARCH_CONTEXT_SIZE = "medium"
 DEFAULT_OPENAI_WEB_SEARCH_ALLOWED_DOMAINS = (
-    "midagri.gob.pe,senasa.gob.pe,inia.gob.pe,senamhi.gob.pe,fao.org"
+    # Oficiales e institucionales (Peru + internacional)
+    "midagri.gob.pe,inia.gob.pe,senasa.gob.pe,senamhi.gob.pe,agrorural.gob.pe,"
+    "lamolina.edu.pe,fao.org,iica.int,cgiar.org,cabi.org,"
+    # Tecnicas agronomicas con buena cobertura web practica
+    "inta.gob.ar,intagri.com,infoagro.com,ivia.gva.es,"
+    # Repositorios academicos
+    "scielo.org,redalyc.org"
 )
 DEFAULT_OPENAI_WEB_SEARCH_COUNTRY = "PE"
 DEFAULT_OPENAI_WEB_SEARCH_REGION = "Lima"
