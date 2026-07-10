@@ -310,7 +310,12 @@ def test_structured_output_rewrites_unsafe_clay_recommendation() -> None:
     recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
     item = recommendation.structured_output["gap_recommendations"][0]
 
-    assert "No se recomienda plantear el aumento directo de arcilla" in item["recommendation"]
+    # Se reemplaza el aumento directo por manejo indirecto, sin la coletilla obvia
+    # ("no se recomienda aumentar arcilla") ni la limitacion redundante.
+    recommendation_text = item["recommendation"].lower()
+    assert "materia organica" in recommendation_text
+    assert "aumentar" not in recommendation_text and "incrementar" not in recommendation_text
+    assert "no se recomienda" not in recommendation_text
     assert item["confidence"] == "media"
     assert item["evidence_status"] == "compatible"
 
@@ -744,11 +749,15 @@ def test_structured_output_rewrites_unsafe_arena_recommendation() -> None:
     recommendation = service.generate(GenerateRecommendationCommand(evaluation_id=service.evaluation_id, persist=False))
     item = recommendation.structured_output["gap_recommendations"][0]
 
-    assert "controlar" not in item["recommendation"].lower()
-    assert "textura" not in item["recommendation"].lower() or "directa" in item["recommendation"].lower() or "plantear" in item["recommendation"].lower()
-    assert "analisis fisico" in item["recommendation"].lower() or "analisis" in item["recommendation"].lower()
+    # Reemplaza el intento de modificar textura por manejo indirecto, con texto limpio:
+    # sin verbos de cambio de textura y sin la limitacion redundante "VIA ajusto...".
+    recommendation_text = item["recommendation"].lower()
+    assert "controlar" not in recommendation_text
+    assert "modificar" not in recommendation_text
+    assert "materia organica" in recommendation_text
+    assert "analisis" in recommendation_text
     assert item["confidence"] in ("baja", "media")
-    assert "VIA ajusto" in item["limitations"]
+    assert "VIA ajusto" not in (item.get("limitations") or "")
 
 
 def test_structured_output_rewrites_arena_elevate_recommendation_and_accepts_practice_evidence() -> None:

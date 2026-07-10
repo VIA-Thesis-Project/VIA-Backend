@@ -560,17 +560,14 @@ def _rewrite_unsafe_clay_recommendation(item: dict) -> None:
     recommendation = _normalize_text(str(item.get("recommendation") or ""))
     if "aumentar" not in recommendation and "incrementar" not in recommendation:
         return
+    # Red de seguridad: si el LLM planteo aumentar la arcilla directamente (impracticable),
+    # se reemplaza por manejo indirecto. Texto limpio, sin coletilla ni limitacion obvia.
     item["recommendation"] = (
         "Mejorar la retencion de humedad y la estructura del suelo mediante incorporacion "
-        "de materia organica, cobertura, preparacion adecuada del terreno y ajuste de la "
-        "frecuencia de riego. No se recomienda plantear el aumento directo de arcilla como "
-        "medida principal."
+        "de materia organica, cobertura vegetal, preparacion adecuada del terreno y ajuste "
+        "de la frecuencia de riego a la textura actual."
     )
     item["confidence"] = _min_confidence(item.get("confidence"), "media")
-    item["limitations"] = _append_limitation(
-        item.get("limitations"),
-        "VIA ajusto una recomendacion no practica sobre aumento directo de arcilla.",
-    )
 
 
 def _rewrite_unsafe_thermal_recommendation(item: dict, crop_id: str | None = None) -> None:
@@ -746,16 +743,13 @@ def _rewrite_unsafe_arena_recommendation(item: dict) -> None:
     )
     if not any(u in norm_rec for u in unsafe):
         return
+    # Red de seguridad: reemplaza el intento de modificar textura por manejo indirecto.
+    # Texto limpio, sin coletilla ni limitacion obvia.
     item["recommendation"] = (
-        "Validar la textura mediante analisis fisico de suelo. Si la baja proporcion de arena "
-        "refleja un suelo pesado o de baja aireacion, priorizar mejora de estructura, drenaje, "
-        "materia organica y manejo de riego. No plantear cambios directos de textura como medida principal."
+        "Priorizar mejora de estructura, drenaje, aporte de materia organica y manejo de riego "
+        "adaptado a la textura actual; validar con analisis fisico de suelo."
     )
     item["confidence"] = _min_confidence(item.get("confidence"), "media")
-    item["limitations"] = _append_limitation(
-        item.get("limitations"),
-        "VIA ajusto una recomendacion que planteaba modificar directamente la textura del suelo.",
-    )
 
 
 def _guard_mandarina_controlled_hydric_stress(item: dict) -> None:
